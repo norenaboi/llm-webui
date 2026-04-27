@@ -8,11 +8,11 @@ Built with **Node.js**, **Express**, and **SQLite**.
 
 ## Features
 
-- 💬 Chat interface in the browser
-- 🔧 Custom API endpoint configuration (OpenAI-compatible)
-- 🤖 Model selection
-- 📝 System prompt configuration
-- 🗄️ Persistent chat history stored in a database
+-  Chat interface in the browser
+-  Custom API endpoint configuration (OpenAI-compatible)
+-  Model selection
+-  System prompt configuration
+-  Persistent chat history stored in a database
 
 ---
 
@@ -22,8 +22,8 @@ Built with **Node.js**, **Express**, and **SQLite**.
 |------------|-------------------------|
 | Runtime    | Node.js                 |
 | Framework  | Express                 |
-| Frontend   | Vanilla HTML/CSS/JS     |
-| Database   | SQLite (via `better-sqlite3`) |
+| Frontend   | HTML/CSS/JS             |
+| Database   | SQLite                  |
 
 ---
 
