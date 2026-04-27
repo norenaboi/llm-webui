@@ -3,7 +3,7 @@ const path = require("path");
 const fs = require("fs");
 require("dotenv").config();
 
-//  Connection 
+//  Connection
 
 const DB_PATH = process.env.DB_PATH || "./data/chat.db";
 
@@ -18,7 +18,7 @@ const db = new Database(DB_PATH);
 // Enable WAL mode for better concurrent read performance
 db.pragma("journal_mode = WAL");
 
-//  Schema 
+//  Schema
 
 /**
  * Creates all required tables if they do not already exist.
@@ -33,6 +33,7 @@ function initDB() {
       system_prompt TEXT  NOT NULL DEFAULT '',
       endpoint    TEXT    NOT NULL DEFAULT '',
       api_key     TEXT    NOT NULL DEFAULT '',
+      stream      TEXT    NOT NULL DEFAULT 'false',
       created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
       updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
     );
@@ -51,9 +52,17 @@ function initDB() {
       value TEXT NOT NULL
     );
   `);
+
+  // Migrate existing databases that pre-date the stream column
+  const cols = db.pragma("table_info(conversations)").map((c) => c.name);
+  if (!cols.includes("stream")) {
+    db.exec(
+      `ALTER TABLE conversations ADD COLUMN stream TEXT NOT NULL DEFAULT 'false'`,
+    );
+  }
 }
 
-//  Conversations 
+//  Conversations
 
 /**
  * Returns all conversations ordered by most recently updated.
@@ -61,9 +70,7 @@ function initDB() {
  */
 function getAllConversations() {
   return db
-    .prepare(
-      `SELECT * FROM conversations ORDER BY updated_at DESC`
-    )
+    .prepare(`SELECT * FROM conversations ORDER BY updated_at DESC`)
     .all();
 }
 
@@ -73,9 +80,7 @@ function getAllConversations() {
  * @returns {Object|undefined}
  */
 function getConversationById(id) {
-  return db
-    .prepare(`SELECT * FROM conversations WHERE id = ?`)
-    .get(id);
+  return db.prepare(`SELECT * FROM conversations WHERE id = ?`).get(id);
 }
 
 /**
@@ -86,15 +91,30 @@ function getConversationById(id) {
  * @param {string} params.system_prompt
  * @param {string} params.endpoint
  * @param {string} params.api_key
+ * @param {string} [params.stream]
  * @returns {Object}
  */
-function createConversation({ title, model, system_prompt, endpoint, api_key }) {
+function createConversation({
+  title,
+  model,
+  system_prompt,
+  endpoint,
+  api_key,
+  stream = "false",
+}) {
   const stmt = db.prepare(`
-    INSERT INTO conversations (title, model, system_prompt, endpoint, api_key)
-    VALUES (@title, @model, @system_prompt, @endpoint, @api_key)
+    INSERT INTO conversations (title, model, system_prompt, endpoint, api_key, stream)
+    VALUES (@title, @model, @system_prompt, @endpoint, @api_key, @stream)
   `);
 
-  const result = stmt.run({ title, model, system_prompt, endpoint, api_key });
+  const result = stmt.run({
+    title,
+    model,
+    system_prompt,
+    endpoint,
+    api_key,
+    stream,
+  });
   return getConversationById(result.lastInsertRowid);
 }
 
@@ -107,19 +127,26 @@ function createConversation({ title, model, system_prompt, endpoint, api_key }) 
  * @param {string} [params.system_prompt]
  * @param {string} [params.endpoint]
  * @param {string} [params.api_key]
+ * @param {string} [params.stream]
  * @returns {Object|undefined}
  */
-function updateConversation(id, { title, model, system_prompt, endpoint, api_key }) {
-  db.prepare(`
+function updateConversation(
+  id,
+  { title, model, system_prompt, endpoint, api_key, stream },
+) {
+  db.prepare(
+    `
     UPDATE conversations
     SET title         = COALESCE(@title,         title),
         model         = COALESCE(@model,         model),
         system_prompt = COALESCE(@system_prompt, system_prompt),
         endpoint      = COALESCE(@endpoint,      endpoint),
         api_key       = COALESCE(@api_key,       api_key),
+        stream        = COALESCE(@stream,        stream),
         updated_at    = datetime('now')
     WHERE id = @id
-  `).run({ id, title, model, system_prompt, endpoint, api_key });
+  `,
+  ).run({ id, title, model, system_prompt, endpoint, api_key, stream });
 
   return getConversationById(id);
 }
@@ -130,13 +157,11 @@ function updateConversation(id, { title, model, system_prompt, endpoint, api_key
  * @returns {boolean} true if a row was deleted
  */
 function deleteConversation(id) {
-  const result = db
-    .prepare(`DELETE FROM conversations WHERE id = ?`)
-    .run(id);
+  const result = db.prepare(`DELETE FROM conversations WHERE id = ?`).run(id);
   return result.changes > 0;
 }
 
-//  Messages 
+//  Messages
 
 /**
  * Returns all messages for a conversation in chronological order.
@@ -146,7 +171,7 @@ function deleteConversation(id) {
 function getMessagesByConversationId(conversationId) {
   return db
     .prepare(
-      `SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC`
+      `SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at ASC`,
     )
     .all(conversationId);
 }
@@ -169,7 +194,7 @@ function createMessage({ conversation_id, role, content }) {
 
   // Bump the parent conversation's updated_at timestamp
   db.prepare(
-    `UPDATE conversations SET updated_at = datetime('now') WHERE id = ?`
+    `UPDATE conversations SET updated_at = datetime('now') WHERE id = ?`,
   ).run(conversation_id);
 
   return db
@@ -177,7 +202,7 @@ function createMessage({ conversation_id, role, content }) {
     .get(result.lastInsertRowid);
 }
 
-//  Settings 
+//  Settings
 
 /**
  * Returns all settings as a plain key/value object.
@@ -194,11 +219,13 @@ function getAllSettings() {
  * @param {string} value
  */
 function setSetting(key, value) {
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO settings (key, value)
     VALUES (?, ?)
     ON CONFLICT(key) DO UPDATE SET value = excluded.value
-  `).run(key, String(value));
+  `,
+  ).run(key, String(value));
 }
 
 /**
@@ -222,7 +249,7 @@ function setSettings(settingsObj) {
   upsertMany(settingsObj);
 }
 
-//  Exports 
+//  Exports
 
 module.exports = {
   initDB,

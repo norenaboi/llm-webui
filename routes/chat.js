@@ -1,8 +1,8 @@
 ﻿const express = require("express");
-const fetch   = require("node-fetch");
-const router  = express.Router();
+const fetch = require("node-fetch");
+const router = express.Router();
 
-//  Database 
+//  Database
 // Same swap rule applies: change only this require to switch databases.
 const {
   getAllConversations,
@@ -14,7 +14,7 @@ const {
   createMessage,
 } = require("../db/sqlite");
 
-//  GET /api/conversations 
+//  GET /api/conversations
 // Returns a list of all conversations (no messages, just metadata)
 router.get("/", (req, res, next) => {
   try {
@@ -25,17 +25,18 @@ router.get("/", (req, res, next) => {
   }
 });
 
-//  POST /api/conversations 
+//  POST /api/conversations
 // Creates a new conversation
-// Body: { title?, model, system_prompt?, endpoint, api_key? }
+// Body: { title?, model, system_prompt?, endpoint, api_key?, stream? }
 router.post("/", (req, res, next) => {
   try {
     const {
-      title         = "New Conversation",
-      model         = "",
+      title = "New Conversation",
+      model = "",
       system_prompt = "",
-      endpoint      = "",
-      api_key       = "",
+      endpoint = "",
+      api_key = "",
+      stream = "false",
     } = req.body;
 
     if (!endpoint) {
@@ -48,6 +49,7 @@ router.post("/", (req, res, next) => {
       system_prompt,
       endpoint,
       api_key,
+      stream: String(stream),
     });
 
     res.status(201).json(conversation);
@@ -56,7 +58,7 @@ router.post("/", (req, res, next) => {
   }
 });
 
-//  GET /api/conversations/:id 
+//  GET /api/conversations/:id
 // Returns a single conversation with all its messages
 router.get("/:id", (req, res, next) => {
   try {
@@ -72,7 +74,7 @@ router.get("/:id", (req, res, next) => {
   }
 });
 
-//  PATCH /api/conversations/:id 
+//  PATCH /api/conversations/:id
 // Updates conversation metadata (title, model, system_prompt, endpoint, api_key)
 // Body: any subset of those fields
 router.patch("/:id", (req, res, next) => {
@@ -82,13 +84,7 @@ router.patch("/:id", (req, res, next) => {
       return res.status(404).json({ error: "Conversation not found" });
     }
 
-    const {
-      title,
-      model,
-      system_prompt,
-      endpoint,
-      api_key,
-    } = req.body;
+    const { title, model, system_prompt, endpoint, api_key, stream } = req.body;
 
     const updated = updateConversation(req.params.id, {
       title,
@@ -96,6 +92,7 @@ router.patch("/:id", (req, res, next) => {
       system_prompt,
       endpoint,
       api_key,
+      stream: stream !== undefined ? String(stream) : undefined,
     });
 
     res.json(updated);
@@ -104,7 +101,7 @@ router.patch("/:id", (req, res, next) => {
   }
 });
 
-//  DELETE /api/conversations/:id 
+//  DELETE /api/conversations/:id
 // Deletes a conversation and all its messages
 router.delete("/:id", (req, res, next) => {
   try {
@@ -163,7 +160,8 @@ router.post("/:id/messages", async (req, res, next) => {
 
     if (useStream) {
       await handleStreamingResponse({
-        req, res,
+        req,
+        res,
         conversation,
         llmMessages,
         conversationId: req.params.id,
@@ -177,7 +175,6 @@ router.post("/:id/messages", async (req, res, next) => {
         userMessage,
       });
     }
-
   } catch (err) {
     // Only send error headers if we haven't started streaming yet
     if (!res.headersSent) {
@@ -190,23 +187,29 @@ router.post("/:id/messages", async (req, res, next) => {
 });
 
 // ─── Blocking (non-streaming) response handler ────────────────────────────────
-async function handleBlockingResponse({ res, conversation, llmMessages, conversationId, userMessage }) {
+async function handleBlockingResponse({
+  res,
+  conversation,
+  llmMessages,
+  conversationId,
+  userMessage,
+}) {
   const reply = await callLLM({
     endpoint: conversation.endpoint,
-    api_key:  conversation.api_key,
-    model:    conversation.model,
+    api_key: conversation.api_key,
+    model: conversation.model,
     messages: llmMessages,
-    stream:   false,
+    stream: false,
   });
 
   const assistantMessage = createMessage({
     conversation_id: conversationId,
-    role:    "assistant",
+    role: "assistant",
     content: reply,
   });
 
   res.status(201).json({
-    user_message:      userMessage,
+    user_message: userMessage,
     assistant_message: assistantMessage,
   });
 }
@@ -214,11 +217,17 @@ async function handleBlockingResponse({ res, conversation, llmMessages, conversa
 // ─── Streaming response handler ───────────────────────────────────────────────
 // Uses Server-Sent Events (SSE) to stream tokens to the client as they arrive.
 // Final event saves the complete message to the database.
-async function handleStreamingResponse({ req, res, conversation, llmMessages, conversationId }) {
+async function handleStreamingResponse({
+  req,
+  res,
+  conversation,
+  llmMessages,
+  conversationId,
+}) {
   // Set SSE headers
-  res.setHeader("Content-Type",  "text/event-stream");
+  res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection",    "keep-alive");
+  res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
 
   // Helper to send an SSE event
@@ -231,10 +240,10 @@ async function handleStreamingResponse({ req, res, conversation, llmMessages, co
   try {
     const llmRes = await callLLM({
       endpoint: conversation.endpoint,
-      api_key:  conversation.api_key,
-      model:    conversation.model,
+      api_key: conversation.api_key,
+      model: conversation.model,
       messages: llmMessages,
-      stream:   true,
+      stream: true,
     });
 
     // llmRes is the raw fetch Response when streaming
@@ -283,7 +292,7 @@ async function handleStreamingResponse({ req, res, conversation, llmMessages, co
         }
       });
 
-      body.on("end",   resolve);
+      body.on("end", resolve);
       body.on("error", reject);
 
       // If the client disconnects early, abort cleanly
@@ -292,7 +301,6 @@ async function handleStreamingResponse({ req, res, conversation, llmMessages, co
         resolve();
       });
     });
-
   } catch (err) {
     sendEvent("error", { error: err.message });
     res.end();
@@ -303,7 +311,7 @@ async function handleStreamingResponse({ req, res, conversation, llmMessages, co
   if (fullContent.trim()) {
     const assistantMessage = createMessage({
       conversation_id: conversationId,
-      role:    "assistant",
+      role: "assistant",
       content: fullContent,
     });
     // Send the final event with the persisted message metadata (id, created_at, etc.)
@@ -329,7 +337,7 @@ async function handleStreamingResponse({ req, res, conversation, llmMessages, co
  */
 async function callLLM({ endpoint, api_key, model, messages, stream = false }) {
   const baseUrl = endpoint.replace(/\/+$/, "");
-  const url     = `${baseUrl}/chat/completions`;
+  const url = `${baseUrl}/chat/completions`;
 
   const headers = { "Content-Type": "application/json" };
   if (api_key && api_key.trim()) {
@@ -342,17 +350,16 @@ async function callLLM({ endpoint, api_key, model, messages, stream = false }) {
   try {
     response = await fetch(url, { method: "POST", headers, body });
   } catch (networkErr) {
-    throw Object.assign(
-      new Error(`Could not reach LLM endpoint: ${url}`),
-      { status: 502 }
-    );
+    throw Object.assign(new Error(`Could not reach LLM endpoint: ${url}`), {
+      status: 502,
+    });
   }
 
   if (!response.ok) {
     const text = await response.text();
     throw Object.assign(
       new Error(`LLM API error ${response.status}: ${text}`),
-      { status: 502 }
+      { status: 502 },
     );
   }
 
@@ -360,13 +367,12 @@ async function callLLM({ endpoint, api_key, model, messages, stream = false }) {
   if (stream) return response;
 
   // Blocking: parse and return just the text content
-  const data  = await response.json();
+  const data = await response.json();
   const reply = data?.choices?.[0]?.message?.content;
   if (!reply) {
-    throw Object.assign(
-      new Error("Unexpected response format from LLM API"),
-      { status: 502 }
-    );
+    throw Object.assign(new Error("Unexpected response format from LLM API"), {
+      status: 502,
+    });
   }
   return reply;
 }

@@ -1,49 +1,64 @@
-﻿/*  State  */
+﻿/*  ═══════════════════════════════════════════════════════════════════════════
+    State
+    ═══════════════════════════════════════════════════════════════════════════ */
 const state = {
-  conversations:       [],
+  conversations: [],
   activeConversationId: null,
-  settings:            {},
-  isLoading:           false,
-  editingConvId:       null,   // null = creating new, number = editing existing
+  settings: {},
+  isLoading: false,
+  editingConvId: null, // null = n/a, number = editing existing conv
+  models: [], // persisted model list
 };
 
-/*  DOM References  */
+/*  ═══════════════════════════════════════════════════════════════════════════
+    DOM References
+    ═══════════════════════════════════════════════════════════════════════════ */
 const dom = {
   // Layout
-  sidebar:            document.getElementById("sidebar"),
+  sidebar: document.getElementById("sidebar"),
   // Conversation list
-  convList:           document.getElementById("conversation-list"),
+  convList: document.getElementById("conversation-list"),
   // Messages
-  messages:           document.getElementById("messages"),
-  emptyState:         document.getElementById("empty-state"),
+  messages: document.getElementById("messages"),
   // Topbar
-  topbarMeta:         document.getElementById("topbar-meta"),
-  btnDeleteChat:      document.getElementById("btn-delete-chat"),
+  topbarMeta: document.getElementById("topbar-meta"),
+  btnDeleteChat: document.getElementById("btn-delete-chat"),
   // Input bar
-  messageInput:       document.getElementById("message-input"),
-  btnSend:            document.getElementById("btn-send"),
-  // Conversation modal
-  modalConv:          document.getElementById("modal-conversation"),
-  modalConvTitle:     document.getElementById("modal-conv-title"),
-  convEndpoint:       document.getElementById("conv-endpoint"),
-  convApiKey:         document.getElementById("conv-api-key"),
-  convModel:          document.getElementById("conv-model"),
-  convTitle:          document.getElementById("conv-title"),
-  convSystemPrompt:   document.getElementById("conv-system-prompt"),
-  convStream:         document.getElementById("conv-stream"),
-  btnConvSave:        document.getElementById("btn-conv-save"),
+  messageInput: document.getElementById("message-input"),
+  btnSend: document.getElementById("btn-send"),
+  // Edit Conversation modal (only used for editing existing convs now)
+  modalConv: document.getElementById("modal-conversation"),
+  modalConvTitle: document.getElementById("modal-conv-title"),
+  convEndpoint: document.getElementById("conv-endpoint"),
+  convApiKey: document.getElementById("conv-api-key"),
+  convModel: document.getElementById("conv-model"),
+  convTitle: document.getElementById("conv-title"),
+  convSystemPrompt: document.getElementById("conv-system-prompt"),
+  convStream: document.getElementById("conv-stream"),
+  btnConvSave: document.getElementById("btn-conv-save"),
+  btnConvCancel: document.getElementById("btn-conv-cancel"),
   // Settings modal
-  modalSettings:      document.getElementById("modal-settings"),
-  settingsEndpoint:   document.getElementById("settings-endpoint"),
-  settingsApiKey:     document.getElementById("settings-api-key"),
-  settingsModel:      document.getElementById("settings-model"),
+  modalSettings: document.getElementById("modal-settings"),
+  settingsEndpoint: document.getElementById("settings-endpoint"),
+  settingsApiKey: document.getElementById("settings-api-key"),
+  settingsModel: document.getElementById("settings-model"),
   settingsSystemPrompt: document.getElementById("settings-system-prompt"),
-  settingsStream:     document.getElementById("settings-stream"),
+  settingsStream: document.getElementById("settings-stream"),
+  // Model management inside settings
+  btnAddModel: document.getElementById("btn-add-model"),
+  addModelRow: document.getElementById("add-model-row"),
+  newModelName: document.getElementById("new-model-name"),
+  btnConfirmAddModel: document.getElementById("btn-confirm-add-model"),
+  btnCancelAddModel: document.getElementById("btn-cancel-add-model"),
+  // Theme toggle
+  btnThemeToggle: document.getElementById("btn-theme-toggle"),
   // Toast
-  toast:              document.getElementById("toast"),
+  toast: document.getElementById("toast"),
 };
 
-/*  API Helpers  */
+/*  ═══════════════════════════════════════════════════════════════════════════
+    API Helpers
+    ═══════════════════════════════════════════════════════════════════════════ */
 const api = {
   async request(method, path, body = null) {
     const opts = {
@@ -53,35 +68,66 @@ const api = {
     if (body) opts.body = JSON.stringify(body);
 
     const res = await fetch(`/api${path}`, opts);
-
-    // 204 No Content has no body
     if (res.status === 204) return null;
 
     const data = await res.json();
-
-    if (!res.ok) {
+    if (!res.ok)
       throw new Error(data?.error || `Request failed (${res.status})`);
-    }
-
     return data;
   },
 
-  getConversations:    ()           => api.request("GET",    "/conversations"),
-  getConversation:     (id)         => api.request("GET",    `/conversations/${id}`),
-  createConversation:  (body)       => api.request("POST",   "/conversations", body),
-  updateConversation:  (id, body)   => api.request("PATCH",  `/conversations/${id}`, body),
-  deleteConversation:  (id)         => api.request("DELETE", `/conversations/${id}`),
-  sendMessage:         (id, content)=> api.request("POST",   `/conversations/${id}/messages`, { content }),
-  getSettings:         ()           => api.request("GET",    "/settings"),
-  saveSettings:        (body)       => api.request("POST",   "/settings", body),
+  getConversations: () => api.request("GET", "/conversations"),
+  getConversation: (id) => api.request("GET", `/conversations/${id}`),
+  createConversation: (body) => api.request("POST", "/conversations", body),
+  updateConversation: (id, body) =>
+    api.request("PATCH", `/conversations/${id}`, body),
+  deleteConversation: (id) => api.request("DELETE", `/conversations/${id}`),
+  sendMessage: (id, content) =>
+    api.request("POST", `/conversations/${id}/messages`, { content }),
+  getSettings: () => api.request("GET", "/settings"),
+  saveSettings: (body) => api.request("POST", "/settings", body),
 };
 
-/*  Toast  */
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Theme
+    ═══════════════════════════════════════════════════════════════════════════ */
+function initTheme() {
+  const saved = localStorage.getItem("theme") || "dark";
+  document.documentElement.setAttribute("data-theme", saved);
+  updateThemeIcon(saved);
+
+  // Unlock smooth transitions after initial paint (avoids flash)
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      document.documentElement.classList.add("theme-loaded");
+    });
+  });
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute("data-theme") || "dark";
+  const next = current === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  localStorage.setItem("theme", next);
+  updateThemeIcon(next);
+}
+
+function updateThemeIcon(theme) {
+  if (dom.btnThemeToggle) {
+    dom.btnThemeToggle.textContent = theme === "dark" ? "☾" : "☀";
+    dom.btnThemeToggle.title =
+      theme === "dark" ? "Switch to light theme" : "Switch to dark theme";
+  }
+}
+
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Toast
+    ═══════════════════════════════════════════════════════════════════════════ */
 let toastTimer = null;
 
 function showToast(message, type = "info") {
   dom.toast.textContent = message;
-  dom.toast.className   = `toast show${type !== "info" ? ` toast--${type}` : ""}`;
+  dom.toast.className = `toast show${type !== "info" ? ` toast--${type}` : ""}`;
 
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
@@ -89,8 +135,10 @@ function showToast(message, type = "info") {
   }, 3000);
 }
 
-/*  Modal Helpers  */
-function openModal(modalEl)  {
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Modal Helpers
+    ═══════════════════════════════════════════════════════════════════════════ */
+function openModal(modalEl) {
   modalEl.setAttribute("aria-hidden", "false");
   modalEl.classList.add("open");
 }
@@ -100,13 +148,96 @@ function closeModal(modalEl) {
   modalEl.classList.remove("open");
 }
 
-/*  Render: Conversation List  */
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Model List  (persisted to localStorage)
+    ═══════════════════════════════════════════════════════════════════════════ */
+const MODELS_KEY = "llm_webui_models";
+
+// Built-in suggested models (shown when the user has no custom list yet)
+const DEFAULT_MODELS = [
+  "gpt-4o",
+  "gpt-4o-mini",
+  "gpt-4-turbo",
+  "gpt-3.5-turbo",
+  "claude-3-5-sonnet-20241022",
+  "claude-3-haiku-20240307",
+  "llama-3.1-70b-instruct",
+  "mistral-7b-instruct",
+  "gemma-2-27b-it",
+  "qwen2.5-72b-instruct",
+];
+
+function loadModels() {
+  try {
+    const raw = localStorage.getItem(MODELS_KEY);
+    state.models = raw ? JSON.parse(raw) : [...DEFAULT_MODELS];
+  } catch {
+    state.models = [...DEFAULT_MODELS];
+  }
+}
+
+function saveModels() {
+  localStorage.setItem(MODELS_KEY, JSON.stringify(state.models));
+}
+
+function addModel(name) {
+  name = name.trim();
+  if (!name) return false;
+  if (state.models.includes(name)) return false; // already exists
+  state.models.push(name);
+  saveModels();
+  return true;
+}
+
+function removeModel(name) {
+  state.models = state.models.filter((m) => m !== name);
+  saveModels();
+}
+
+/**
+ * Populate a <select> element with the current model list.
+ * If `selectedValue` is provided, that option is pre-selected;
+ * otherwise the first option is selected.
+ * A placeholder "— select model —" option is prepended.
+ */
+function populateModelSelect(selectEl, selectedValue = "") {
+  selectEl.innerHTML = "";
+
+  // Placeholder
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "— select model —";
+  placeholder.disabled = true;
+  placeholder.selected = !selectedValue;
+  selectEl.appendChild(placeholder);
+
+  for (const m of state.models) {
+    const opt = document.createElement("option");
+    opt.value = m;
+    opt.textContent = m;
+    if (m === selectedValue) opt.selected = true;
+    selectEl.appendChild(opt);
+  }
+
+  // If selectedValue isn't in the list (e.g. an old conversation has an
+  // unlisted model), add it as a one-off option so it isn't lost.
+  if (selectedValue && !state.models.includes(selectedValue)) {
+    const opt = document.createElement("option");
+    opt.value = selectedValue;
+    opt.textContent = selectedValue + " (custom)";
+    opt.selected = true;
+    selectEl.insertBefore(opt, selectEl.children[1]); // after placeholder
+  }
+}
+
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Render: Conversation List
+    ═══════════════════════════════════════════════════════════════════════════ */
 function renderConversationList() {
   dom.convList.innerHTML = "";
 
   if (state.conversations.length === 0) {
-    dom.convList.innerHTML =
-      `<p style="padding:16px;font-size:0.8rem;color:var(--clr-text-muted);text-align:center;">
+    dom.convList.innerHTML = `<p style="padding:16px;font-size:0.8rem;color:var(--clr-text-muted);text-align:center;">
         No conversations yet
       </p>`;
     return;
@@ -114,11 +245,15 @@ function renderConversationList() {
 
   for (const conv of state.conversations) {
     const item = document.createElement("div");
-    item.className = "conv-item" + (conv.id === state.activeConversationId ? " active" : "");
+    item.className =
+      "conv-item" + (conv.id === state.activeConversationId ? " active" : "");
     item.dataset.id = conv.id;
 
     const date = new Date(conv.updated_at);
-    const dateStr = date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    const dateStr = date.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    });
 
     item.innerHTML = `
       <div class="conv-item__info">
@@ -130,13 +265,11 @@ function renderConversationList() {
       </button>
     `;
 
-    // Select conversation on click (but not if clicking the edit button)
     item.addEventListener("click", (e) => {
       if (e.target.closest(".conv-item__edit")) return;
       selectConversation(conv.id);
     });
 
-    // Edit button
     item.querySelector(".conv-item__edit").addEventListener("click", (e) => {
       e.stopPropagation();
       openEditConversationModal(conv.id);
@@ -146,7 +279,9 @@ function renderConversationList() {
   }
 }
 
-/*  Render: Messages  */
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Render: Messages
+    ═══════════════════════════════════════════════════════════════════════════ */
 function renderMessages(messages) {
   dom.messages.innerHTML = "";
 
@@ -167,7 +302,6 @@ function renderMessages(messages) {
 }
 
 function appendMessageBubble(role, content, timestamp = null) {
-  // Remove empty state if present
   const empty = dom.messages.querySelector(".empty-state");
   if (empty) empty.remove();
 
@@ -175,11 +309,22 @@ function appendMessageBubble(role, content, timestamp = null) {
   wrapper.className = `message message--${role}`;
 
   const time = timestamp
-    ? new Date(timestamp).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
-    : new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    ? new Date(timestamp).toLocaleTimeString(undefined, {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : new Date().toLocaleTimeString(undefined, {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+  const bubbleContent =
+    role === "user"
+      ? `<span style="white-space: pre-wrap">${escapeHtml(content)}</span>`
+      : formatMessageContent(content);
 
   wrapper.innerHTML = `
-    <div class="message__bubble">${formatMessageContent(content)}</div>
+    <div class="message__bubble">${bubbleContent}</div>
     <span class="message__time">${time}</span>
   `;
 
@@ -208,7 +353,9 @@ function removeThinkingBubble() {
   if (el) el.remove();
 }
 
-/*  Render: Topbar  */
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Render: Topbar
+    ═══════════════════════════════════════════════════════════════════════════ */
 function renderTopbar(conv) {
   if (!conv) {
     dom.topbarMeta.innerHTML = "";
@@ -223,7 +370,9 @@ function renderTopbar(conv) {
   dom.btnDeleteChat.style.display = "flex";
 }
 
-/*  Select Conversation  */
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Select Conversation
+    ═══════════════════════════════════════════════════════════════════════════ */
 async function selectConversation(id) {
   if (state.isLoading) return;
 
@@ -240,14 +389,151 @@ async function selectConversation(id) {
   }
 }
 
-/*  Send Message  */
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Instant New Conversation  (no modal — uses global settings)
+    ═══════════════════════════════════════════════════════════════════════════ */
+async function createNewConversation() {
+  const s = state.settings;
+
+  // Guard: need at least an endpoint configured
+  if (!s.endpoint) {
+    showToast("Set an API endpoint in Settings first", "error");
+    openSettingsModal();
+    return;
+  }
+
+  try {
+    const newConv = await api.createConversation({
+      title: "New Conversation",
+      model: s.model || "",
+      system_prompt: s.system_prompt || "",
+      endpoint: s.endpoint,
+      api_key: s.api_key || "",
+      stream: s.stream || "false",
+    });
+
+    await loadConversations();
+    await selectConversation(newConv.id);
+    showToast("Conversation created", "success");
+  } catch (err) {
+    showToast("Failed to create conversation: " + err.message, "error");
+  }
+}
+
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Edit Conversation Modal
+    ═══════════════════════════════════════════════════════════════════════════ */
+async function openEditConversationModal(id) {
+  state.editingConvId = id;
+
+  try {
+    const conv = await api.getConversation(id);
+
+    dom.convEndpoint.value = conv.endpoint || "";
+    dom.convApiKey.value = conv.api_key || "";
+    dom.convTitle.value = conv.title || "";
+    dom.convSystemPrompt.value = conv.system_prompt || "";
+    dom.convStream.checked = conv.stream === "true" || conv.stream === true;
+
+    // Populate model dropdown and pre-select the conv's current model
+    populateModelSelect(dom.convModel, conv.model || "");
+
+    dom.modalConvTitle.textContent = "Edit Conversation";
+    dom.btnConvSave.textContent = "Save Changes";
+    dom.btnConvCancel.textContent = "Cancel";
+
+    openModal(dom.modalConv);
+    dom.convTitle.focus();
+  } catch (err) {
+    showToast("Failed to load conversation: " + err.message, "error");
+  }
+}
+
+async function saveConversationModal() {
+  const endpoint = dom.convEndpoint.value.trim();
+  const model = dom.convModel.value.trim();
+  const api_key = dom.convApiKey.value.trim();
+  const title = dom.convTitle.value.trim() || "New Conversation";
+  const system_prompt = dom.convSystemPrompt.value.trim();
+  const stream = String(dom.convStream.checked);
+
+  if (!endpoint) {
+    showToast("API Endpoint is required", "error");
+    dom.convEndpoint.focus();
+    return;
+  }
+  if (!model) {
+    showToast("Please select or add a model", "error");
+    dom.convModel.focus();
+    return;
+  }
+
+  try {
+    dom.btnConvSave.disabled = true;
+
+    await api.updateConversation(state.editingConvId, {
+      title,
+      model,
+      system_prompt,
+      endpoint,
+      api_key,
+      stream,
+    });
+
+    showToast("Conversation updated", "success");
+    closeModal(dom.modalConv);
+    await loadConversations();
+
+    if (state.editingConvId === state.activeConversationId) {
+      const refreshed = await api.getConversation(state.editingConvId);
+      renderTopbar(refreshed);
+    }
+  } catch (err) {
+    showToast("Error: " + err.message, "error");
+  } finally {
+    dom.btnConvSave.disabled = false;
+  }
+}
+
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Delete Conversation
+    ═══════════════════════════════════════════════════════════════════════════ */
+async function deleteActiveConversation() {
+  if (!state.activeConversationId) return;
+
+  const conv = state.conversations.find(
+    (c) => c.id === state.activeConversationId,
+  );
+  const name = conv ? `"${conv.title}"` : "this conversation";
+
+  if (!confirm(`Delete ${name}? This cannot be undone.`)) return;
+
+  try {
+    await api.deleteConversation(state.activeConversationId);
+    state.activeConversationId = null;
+    renderTopbar(null);
+    disableInput();
+    dom.messages.innerHTML = "";
+    showEmptyState();
+    showToast("Conversation deleted", "success");
+    await loadConversations();
+  } catch (err) {
+    showToast("Failed to delete: " + err.message, "error");
+  }
+}
+
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Send Message
+    ═══════════════════════════════════════════════════════════════════════════ */
 async function sendMessage() {
   const content = dom.messageInput.value.trim();
   if (!content || state.isLoading || !state.activeConversationId) return;
 
-  // Check active conversation's stream setting
-  const activeConv   = state.conversations.find(c => c.id === state.activeConversationId);
-  const useStreaming = activeConv?.stream === "true" || activeConv?.stream === true;
+  const activeConv = state.conversations.find(
+    (c) => c.id === state.activeConversationId,
+  );
+  const useStreaming =
+    activeConv?.stream === "true" || activeConv?.stream === true;
 
   state.isLoading = true;
   disableInput();
@@ -283,7 +569,7 @@ async function sendMessageBlocking(content) {
   appendMessageBubble(
     "assistant",
     result.assistant_message.content,
-    result.assistant_message.created_at
+    result.assistant_message.created_at,
   );
   scrollToBottom();
 }
@@ -292,73 +578,67 @@ async function sendMessageStreaming(content) {
   return new Promise((resolve, reject) => {
     const url = `/api/conversations/${state.activeConversationId}/messages?stream=true`;
 
-    const eventSource = new EventSource(
-      // EventSource is GET-only, so we use fetch with a ReadableStream instead
-      // We'll use fetch + manual SSE parsing
-      "about:blank"
-    );
-    eventSource.close(); // immediately close the dummy, we use fetch below
-
     fetch(url, {
-      method:  "POST",
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ content }),
-    }).then(async (res) => {
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data?.error || `Request failed (${res.status})`);
-      }
+      body: JSON.stringify({ content }),
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data?.error || `Request failed (${res.status})`);
+        }
 
-      // Remove thinking bubble and create a streaming bubble
-      removeThinkingBubble();
-      const wrapper  = appendMessageBubble("assistant", "");
-      const bubble   = wrapper.querySelector(".message__bubble");
-      let fullContent = "";
+        removeThinkingBubble();
+        const wrapper = appendMessageBubble("assistant", "");
+        const bubble = wrapper.querySelector(".message__bubble");
+        let fullContent = "";
 
-      const reader  = res.body.getReader();
-      const decoder = new TextDecoder("utf-8");
-      let buffer    = "";
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let buffer = "";
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop(); // keep incomplete line
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop();
 
-        for (const line of lines) {
-          const trimmed = line.trim();
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith("event:")) continue;
 
-          if (trimmed.startsWith("event:")) continue; // event name line
+            if (trimmed.startsWith("data:")) {
+              const raw = trimmed.slice(5).trim();
+              let parsed;
+              try {
+                parsed = JSON.parse(raw);
+              } catch {
+                continue;
+              }
 
-          if (trimmed.startsWith("data:")) {
-            const raw = trimmed.slice(5).trim();
-
-            let parsed;
-            try { parsed = JSON.parse(raw); } catch { continue; }
-
-            if (parsed.token) {
-              fullContent += parsed.token;
-              // Re-render with accumulated content so markdown formats correctly
-              bubble.innerHTML = formatMessageContent(fullContent);
-              scrollToBottom();
-            }
-
-            if (parsed.error) {
-              throw new Error(parsed.error);
+              if (parsed.token) {
+                fullContent += parsed.token;
+                bubble.innerHTML = formatMessageContent(fullContent);
+                scrollToBottom();
+              }
+              if (parsed.error) throw new Error(parsed.error);
             }
           }
         }
-      }
 
-      scrollToBottom();
-      resolve();
-    }).catch(reject);
+        scrollToBottom();
+        resolve();
+      })
+      .catch(reject);
   });
 }
 
-/*  Load Conversations  */
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Load Data
+    ═══════════════════════════════════════════════════════════════════════════ */
 async function loadConversations() {
   try {
     state.conversations = await api.getConversations();
@@ -368,156 +648,49 @@ async function loadConversations() {
   }
 }
 
-/*  Load Settings  */
 async function loadSettings() {
   try {
     state.settings = await api.getSettings();
-  } catch (err) {
-    // Non-fatal: settings might just be empty
+  } catch {
     state.settings = {};
   }
 }
 
-/*  New Conversation Modal  */
-function openNewConversationModal() {
-  state.editingConvId = null;
-
-  // Pre-fill from global settings
-  dom.convEndpoint.value     = state.settings.endpoint      || "";
-  dom.convApiKey.value       = state.settings.api_key       || "";
-  dom.convModel.value        = state.settings.model         || "";
-  dom.convTitle.value        = "";
-  dom.convSystemPrompt.value = state.settings.system_prompt || "";
-  dom.convStream.checked = state.settings.stream === "true";
-
-  dom.modalConvTitle.textContent = "New Conversation";
-  dom.btnConvSave.textContent    = "Create";
-
-  openModal(dom.modalConv);
-  dom.convModel.focus();
-}
-
-async function openEditConversationModal(id) {
-  state.editingConvId = id;
-
-  try {
-    const conv = await api.getConversation(id);
-
-    dom.convEndpoint.value     = conv.endpoint      || "";
-    dom.convApiKey.value       = conv.api_key       || "";
-    dom.convModel.value        = conv.model         || "";
-    dom.convTitle.value        = conv.title         || "";
-    dom.convSystemPrompt.value = conv.system_prompt || "";
-    dom.convStream.checked = conv.stream === "true" || conv.stream === true;
-
-    dom.modalConvTitle.textContent = "Edit Conversation";
-    dom.btnConvSave.textContent    = "Save Changes";
-
-    openModal(dom.modalConv);
-    dom.convTitle.focus();
-  } catch (err) {
-    showToast("Failed to load conversation: " + err.message, "error");
-  }
-}
-
-async function saveConversationModal() {
-  const endpoint     = dom.convEndpoint.value.trim();
-  const model        = dom.convModel.value.trim();
-  const api_key      = dom.convApiKey.value.trim();
-  const title        = dom.convTitle.value.trim() || "New Conversation";
-  const system_prompt = dom.convSystemPrompt.value.trim();
-  const stream = String(dom.convStream.checked);
-
-  if (!endpoint) {
-    showToast("API Endpoint is required", "error");
-    dom.convEndpoint.focus();
-    return;
-  }
-  if (!model) {
-    showToast("Model is required", "error");
-    dom.convModel.focus();
-    return;
-  }
-
-  try {
-    dom.btnConvSave.disabled = true;
-
-    if (state.editingConvId) {
-      //  Edit mode
-      await api.updateConversation(state.editingConvId, {
-        title, model, system_prompt, endpoint, api_key, steam
-      });
-
-      showToast("Conversation updated", "success");
-      closeModal(dom.modalConv);
-      await loadConversations();
-
-      // Re-render topbar if we edited the active conversation
-      if (state.editingConvId === state.activeConversationId) {
-        const refreshed = await api.getConversation(state.editingConvId);
-        renderTopbar(refreshed);
-      }
-    } else {
-      //  Create mode
-      const newConv = await api.createConversation({
-        title, model, system_prompt, endpoint, api_key, stream
-      });
-
-      showToast("Conversation created", "success");
-      closeModal(dom.modalConv);
-      await loadConversations();
-      await selectConversation(newConv.id);
-    }
-  } catch (err) {
-    showToast("Error: " + err.message, "error");
-  } finally {
-    dom.btnConvSave.disabled = false;
-  }
-}
-
-/*  Delete Conversation  */
-async function deleteActiveConversation() {
-  if (!state.activeConversationId) return;
-
-  const conv = state.conversations.find(c => c.id === state.activeConversationId);
-  const name = conv ? `"${conv.title}"` : "this conversation";
-
-  if (!confirm(`Delete ${name}? This cannot be undone.`)) return;
-
-  try {
-    await api.deleteConversation(state.activeConversationId);
-    state.activeConversationId = null;
-    renderTopbar(null);
-    disableInput();
-    dom.messages.innerHTML = "";
-    showEmptyState();
-    showToast("Conversation deleted", "success");
-    await loadConversations();
-  } catch (err) {
-    showToast("Failed to delete: " + err.message, "error");
-  }
-}
-
-/*  Settings Modal  */
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Settings Modal
+    ═══════════════════════════════════════════════════════════════════════════ */
 function openSettingsModal() {
-  dom.settingsEndpoint.value     = state.settings.endpoint      || "";
-  dom.settingsApiKey.value       = state.settings.api_key       || "";
-  dom.settingsModel.value        = state.settings.model         || "";
+  dom.settingsEndpoint.value = state.settings.endpoint || "";
+  dom.settingsApiKey.value = state.settings.api_key || "";
   dom.settingsSystemPrompt.value = state.settings.system_prompt || "";
   dom.settingsStream.checked = state.settings.stream === "true";
+
+  // Populate model dropdown in settings
+  populateModelSelect(dom.settingsModel, state.settings.model || "");
+
+  // Hide the add-model row if it was left open
+  dom.addModelRow.style.display = "none";
+  dom.newModelName.value = "";
+
   openModal(dom.modalSettings);
 }
 
 async function saveSettingsModal() {
-  const endpoint      = dom.settingsEndpoint.value.trim();
-  const api_key       = dom.settingsApiKey.value.trim();
-  const model         = dom.settingsModel.value.trim();
+  const endpoint = dom.settingsEndpoint.value.trim();
+  const api_key = dom.settingsApiKey.value.trim();
+  const model = dom.settingsModel.value.trim();
   const system_prompt = dom.settingsSystemPrompt.value.trim();
   const stream = String(dom.settingsStream.checked);
 
   try {
     document.getElementById("btn-settings-save").disabled = true;
-    state.settings = await api.saveSettings({ endpoint, api_key, model, system_prompt, stream });
+    state.settings = await api.saveSettings({
+      endpoint,
+      api_key,
+      model,
+      system_prompt,
+      stream,
+    });
     showToast("Settings saved", "success");
     closeModal(dom.modalSettings);
   } catch (err) {
@@ -527,15 +700,51 @@ async function saveSettingsModal() {
   }
 }
 
-/*  Input Helpers  */
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Custom Model Management (inside Settings modal)
+    ═══════════════════════════════════════════════════════════════════════════ */
+function showAddModelRow() {
+  dom.addModelRow.style.display = "flex";
+  dom.newModelName.value = "";
+  dom.newModelName.focus();
+}
+
+function hideAddModelRow() {
+  dom.addModelRow.style.display = "none";
+  dom.newModelName.value = "";
+}
+
+function confirmAddModel() {
+  const name = dom.newModelName.value.trim();
+  if (!name) {
+    showToast("Model name cannot be empty", "error");
+    dom.newModelName.focus();
+    return;
+  }
+
+  const added = addModel(name);
+  if (!added) {
+    showToast(`"${name}" is already in the list`, "error");
+    return;
+  }
+
+  // Refresh both dropdowns and select the new model in settings
+  populateModelSelect(dom.settingsModel, name);
+  hideAddModelRow();
+  showToast(`Model "${name}" added`, "success");
+}
+
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Input Helpers
+    ═══════════════════════════════════════════════════════════════════════════ */
 function enableInput() {
   dom.messageInput.disabled = false;
-  dom.btnSend.disabled      = false;
+  dom.btnSend.disabled = false;
 }
 
 function disableInput() {
   dom.messageInput.disabled = true;
-  dom.btnSend.disabled      = true;
+  dom.btnSend.disabled = true;
 }
 
 function resetTextareaHeight() {
@@ -545,28 +754,23 @@ function resetTextareaHeight() {
 function showEmptyState() {
   dom.messages.innerHTML = `
     <div class="empty-state" id="empty-state">
-      <div class="empty-state__icon">🤖</div>
       <h2>Welcome to LLM WebUI</h2>
       <p>Start a new conversation or select one from the sidebar.</p>
       <button class="btn btn--primary" id="btn-new-chat-2">New Conversation</button>
     </div>`;
 
-  // Re-bind the button inside the empty state since we just recreated it
-  document.getElementById("btn-new-chat-2")
-    .addEventListener("click", openNewConversationModal);
+  document
+    .getElementById("btn-new-chat-2")
+    .addEventListener("click", createNewConversation);
 }
 
 function scrollToBottom() {
   dom.messages.scrollTop = dom.messages.scrollHeight;
 }
 
-/*  Formatting Helpers  */
-
-/**
- * Escapes HTML special characters to prevent XSS.
- * @param {string} str
- * @returns {string}
- */
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Formatting Helpers
+    ═══════════════════════════════════════════════════════════════════════════ */
 function escapeHtml(str) {
   return String(str)
     .replace(/&/g, "&amp;")
@@ -576,64 +780,82 @@ function escapeHtml(str) {
     .replace(/'/g, "&#039;");
 }
 
-/**
- * Very lightweight Markdown-like formatter.
- * Handles: fenced code blocks, inline code, bold, italic.
- * Full content is HTML-escaped first to prevent XSS.
- * @param {string} content
- * @returns {string} HTML string safe to set as innerHTML
- */
 function formatMessageContent(content) {
-  let escaped = escapeHtml(content);
+  if (typeof marked === "undefined") {
+    // Fallback: plain escaping with newlines if marked hasn't loaded yet
+    return escapeHtml(content).replace(/\n/g, "<br>");
+  }
 
-  // Fenced code blocks (``` ... ```)
-  escaped = escaped.replace(
-    /```([a-z]*)\n?([\s\S]*?)```/g,
-    (_, lang, code) =>
-      `<pre><code class="language-${lang}">${code.trim()}</code></pre>`
-  );
-
-  // Inline code (`...`)
-  escaped = escaped.replace(/`([^`]+)`/g, "<code>$1</code>");
-
-  // Bold (**text**)
-  escaped = escaped.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-
-  // Italic (*text*)
-  escaped = escaped.replace(/\*(.+?)\*/g, "<em>$1</em>");
-
-  // Newlines to <br> (outside of pre blocks)
-  escaped = escaped.replace(/(?<!<\/pre>)\n/g, "<br>");
-
-  return escaped;
+  return marked.parse(content, {
+    breaks: true, // single newline → <br> inside paragraphs
+    gfm: true, // GitHub-Flavoured Markdown (tables, strikethrough, etc.)
+  });
 }
 
-/*  Event Listeners  */
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Event Listeners
+    ═══════════════════════════════════════════════════════════════════════════ */
 function bindEvents() {
-  //  Sidebar toggle
-  document.getElementById("btn-toggle-sidebar").addEventListener("click", () => {
-    dom.sidebar.classList.toggle("collapsed");
-  });
+  // Sidebar toggle
+  document
+    .getElementById("btn-toggle-sidebar")
+    .addEventListener("click", () => {
+      dom.sidebar.classList.toggle("collapsed");
+    });
 
-  //  New conversation buttons
-  document.getElementById("btn-new-chat").addEventListener("click", openNewConversationModal);
-  document.getElementById("btn-new-chat-2").addEventListener("click", openNewConversationModal);
+  // Theme toggle
+  dom.btnThemeToggle.addEventListener("click", toggleTheme);
 
-  //  Delete conversation
+  // New conversation (instant — no modal)
+  document
+    .getElementById("btn-new-chat")
+    .addEventListener("click", createNewConversation);
+  // The btn-new-chat-2 inside empty-state is bound dynamically in showEmptyState()
+  // but also bind the initial one present in the HTML
+  const initialEmptyBtn = document.getElementById("btn-new-chat-2");
+  if (initialEmptyBtn) {
+    initialEmptyBtn.addEventListener("click", createNewConversation);
+  }
+
+  // Delete conversation
   dom.btnDeleteChat.addEventListener("click", deleteActiveConversation);
 
-  //  Conversation modal
+  // Edit Conversation modal
   dom.btnConvSave.addEventListener("click", saveConversationModal);
-  document.getElementById("btn-conv-cancel").addEventListener("click",       () => closeModal(dom.modalConv));
-  document.getElementById("btn-close-conv-modal").addEventListener("click",  () => closeModal(dom.modalConv));
+  document
+    .getElementById("btn-conv-cancel")
+    .addEventListener("click", () => closeModal(dom.modalConv));
+  document
+    .getElementById("btn-close-conv-modal")
+    .addEventListener("click", () => closeModal(dom.modalConv));
 
-  //  Settings modal
-  document.getElementById("btn-open-settings").addEventListener("click",          openSettingsModal);
-  document.getElementById("btn-settings-save").addEventListener("click",          saveSettingsModal);
-  document.getElementById("btn-settings-cancel").addEventListener("click",        () => closeModal(dom.modalSettings));
-  document.getElementById("btn-close-settings-modal").addEventListener("click",   () => closeModal(dom.modalSettings));
+  // Settings modal
+  document
+    .getElementById("btn-open-settings")
+    .addEventListener("click", openSettingsModal);
+  document
+    .getElementById("btn-settings-save")
+    .addEventListener("click", saveSettingsModal);
+  document
+    .getElementById("btn-settings-cancel")
+    .addEventListener("click", () => closeModal(dom.modalSettings));
+  document
+    .getElementById("btn-close-settings-modal")
+    .addEventListener("click", () => closeModal(dom.modalSettings));
 
-  //  Close modals on overlay click
+  // Add custom model flow
+  dom.btnAddModel.addEventListener("click", showAddModelRow);
+  dom.btnConfirmAddModel.addEventListener("click", confirmAddModel);
+  dom.btnCancelAddModel.addEventListener("click", hideAddModelRow);
+  dom.newModelName.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      confirmAddModel();
+    }
+    if (e.key === "Escape") hideAddModelRow();
+  });
+
+  // Close modals on overlay click
   dom.modalConv.addEventListener("click", (e) => {
     if (e.target === dom.modalConv) closeModal(dom.modalConv);
   });
@@ -641,7 +863,7 @@ function bindEvents() {
     if (e.target === dom.modalSettings) closeModal(dom.modalSettings);
   });
 
-  //  Close modals on Escape key
+  // Close modals on Escape
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       closeModal(dom.modalConv);
@@ -649,29 +871,31 @@ function bindEvents() {
     }
   });
 
-  //  Send message
+  // Send message
   dom.btnSend.addEventListener("click", sendMessage);
-
   dom.messageInput.addEventListener("keydown", (e) => {
-    // Enter sends, Shift+Enter inserts a newline
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
     }
   });
 
-  //  Auto-resize textarea as user types
+  // Auto-resize textarea
   dom.messageInput.addEventListener("input", () => {
     dom.messageInput.style.height = "auto";
-    dom.messageInput.style.height = Math.min(dom.messageInput.scrollHeight, 160) + "px";
+    dom.messageInput.style.height =
+      Math.min(dom.messageInput.scrollHeight, 160) + "px";
   });
 }
 
-/*  Init  */
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Init
+    ═══════════════════════════════════════════════════════════════════════════ */
 async function init() {
+  initTheme();
+  loadModels();
   bindEvents();
   await loadSettings();
   await loadConversations();
 }
-
 init();

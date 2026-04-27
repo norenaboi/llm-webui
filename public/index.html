@@ -1,232 +1,313 @@
-﻿<!DOCTYPE html>
+﻿<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>LLM WebUI</title>
-  <link rel="stylesheet" href="style.css" />
-</head>
-<body>
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>LLM WebUI</title>
+        <link rel="stylesheet" href="style.css" />
+        <script>
+            // Inline theme init — runs before first paint to prevent flash
+            (function () {
+                var theme = localStorage.getItem("theme") || "dark";
+                document.documentElement.setAttribute("data-theme", theme);
+            })();
+        </script>
+    </head>
+    <body>
+        <div class="layout">
+            <aside class="sidebar" id="sidebar">
+                <div class="sidebar__header">
+                    <span class="sidebar__title" style="margin-inline: auto"
+                        >LLM WebUI</span
+                    >
+                    <button
+                        class="btn btn--icon"
+                        id="btn-new-chat"
+                        title="New conversation"
+                    >
+                        &#43;
+                    </button>
+                </div>
 
-  <!--  Layout Wrapper  -->
-  <div class="layout">
+                <nav class="sidebar__nav" id="conversation-list"></nav>
 
-    <!--  Sidebar  -->
-    <aside class="sidebar" id="sidebar">
+                <div class="sidebar__footer">
+                    <button
+                        class="btn btn--icon btn--theme-toggle"
+                        id="btn-theme-toggle"
+                        title="Toggle theme"
+                    >
+                        ☾
+                    </button>
+                    <button
+                        class="btn btn--ghost btn--full"
+                        id="btn-open-settings"
+                    >
+                        ⚙ Settings
+                    </button>
+                </div>
+            </aside>
 
-      <div class="sidebar__header">
-        <span class="sidebar__title">LLM WebUI</span>
-        <button class="btn btn--icon" id="btn-new-chat" title="New conversation">
-          &#43;
-        </button>
-      </div>
+            <main class="main" id="main">
+                <header class="topbar">
+                    <button
+                        class="btn btn--icon"
+                        id="btn-toggle-sidebar"
+                        title="Toggle sidebar"
+                    >
+                        &#9776;
+                    </button>
 
-      <!-- Conversation list -->
-      <nav class="sidebar__nav" id="conversation-list">
-        <!-- Populated by app.js -->
-      </nav>
+                    <div class="topbar__meta" id="topbar-meta"></div>
 
-      <!-- Settings button pinned to bottom of sidebar -->
-      <div class="sidebar__footer">
-        <button class="btn btn--ghost btn--full" id="btn-open-settings">
-          ⚙ Settings
-        </button>
-      </div>
+                    <button
+                        class="btn btn--icon btn--danger"
+                        id="btn-delete-chat"
+                        title="Delete conversation"
+                        style="display: none"
+                    >
+                        &#128465;
+                    </button>
+                </header>
 
-    </aside>
+                <div class="messages" id="messages">
+                    <div class="empty-state" id="empty-state">
+                        <p>
+                            Start a new conversation or select one from the
+                            sidebar.
+                        </p>
+                        <button class="btn btn--primary" id="btn-new-chat-2">
+                            New Conversation
+                        </button>
+                    </div>
+                </div>
 
-    <!--  Main Panel  -->
-    <main class="main" id="main">
-
-      <!-- Top bar -->
-      <header class="topbar">
-        <button class="btn btn--icon" id="btn-toggle-sidebar" title="Toggle sidebar">
-          &#9776;
-        </button>
-
-        <div class="topbar__meta" id="topbar-meta">
-          <!-- Conversation title + model shown here -->
+                <div class="input-bar" id="input-bar">
+                    <textarea
+                        id="message-input"
+                        class="input-bar__textarea"
+                        placeholder="Type a message… (Enter to send, Shift+Enter for new line)"
+                        rows="1"
+                        disabled
+                    ></textarea>
+                    <button class="btn btn--primary" id="btn-send" disabled>
+                        Send
+                    </button>
+                </div>
+            </main>
         </div>
 
-        <button class="btn btn--icon btn--danger" id="btn-delete-chat" title="Delete conversation" style="display:none;">
-          &#128465;
-        </button>
-      </header>
+        <div class="modal-overlay" id="modal-conversation" aria-hidden="true">
+            <div
+                class="modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="modal-conv-title"
+            >
+                <div class="modal__header">
+                    <h2 class="modal__title" id="modal-conv-title">
+                        Edit Conversation
+                    </h2>
+                    <button class="btn btn--icon" id="btn-close-conv-modal">
+                        &#10005;
+                    </button>
+                </div>
 
-      <!-- Message area -->
-      <div class="messages" id="messages">
-        <!-- Welcome state (shown when no conversation is selected) -->
-        <div class="empty-state" id="empty-state">
-          <div class="empty-state__icon">🤖</div>
-          <h2>Welcome to LLM WebUI</h2>
-          <p>Start a new conversation or select one from the sidebar.</p>
-          <button class="btn btn--primary" id="btn-new-chat-2">
-            New Conversation
-          </button>
-        </div>
-      </div>
+                <div class="modal__body">
+                    <label class="form-label" for="conv-endpoint">
+                        API Endpoint <span class="required">*</span>
+                    </label>
+                    <input
+                        type="url"
+                        id="conv-endpoint"
+                        class="form-input"
+                        placeholder="https://api.openai.com/v1"
+                    />
 
-      <!-- Input bar -->
-      <div class="input-bar" id="input-bar">
-        <textarea
-          id="message-input"
-          class="input-bar__textarea"
-          placeholder="Type a message… (Enter to send, Shift+Enter for new line)"
-          rows="1"
-          disabled
-        ></textarea>
-        <button class="btn btn--primary" id="btn-send" disabled>
-          Send
-        </button>
-      </div>
+                    <label class="form-label" for="conv-api-key">API Key</label>
+                    <input
+                        type="password"
+                        id="conv-api-key"
+                        class="form-input"
+                        placeholder="sk-… (leave empty for local models)"
+                    />
 
-    </main>
+                    <label class="form-label" for="conv-model">
+                        Model <span class="required">*</span>
+                    </label>
+                    <select
+                        id="conv-model"
+                        class="form-input form-select"
+                    ></select>
 
-  </div>
+                    <label class="form-label" for="conv-title"
+                        >Conversation Title</label
+                    >
+                    <input
+                        type="text"
+                        id="conv-title"
+                        class="form-input"
+                        placeholder="New Conversation"
+                    />
 
-  <!--  New / Edit Conversation Modal  -->
-  <div class="modal-overlay" id="modal-conversation" aria-hidden="true">
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-conv-title">
+                    <label class="form-label" for="conv-system-prompt"
+                        >System Prompt</label
+                    >
+                    <textarea
+                        id="conv-system-prompt"
+                        class="form-textarea"
+                        rows="4"
+                        placeholder="You are a helpful assistant…"
+                    ></textarea>
 
-      <div class="modal__header">
-        <h2 class="modal__title" id="modal-conv-title">New Conversation</h2>
-        <button class="btn btn--icon" id="btn-close-conv-modal">&#10005;</button>
-      </div>
+                    <label class="form-label" for="conv-stream"
+                        >Streaming</label
+                    >
+                    <div class="toggle-row">
+                        <label class="toggle">
+                            <input type="checkbox" id="conv-stream" />
+                            <span class="toggle__slider"></span>
+                        </label>
+                        <span class="toggle__label"
+                            >Stream responses token by token</span
+                        >
+                    </div>
+                </div>
 
-      <div class="modal__body">
-
-        <label class="form-label" for="conv-endpoint">
-          API Endpoint <span class="required">*</span>
-        </label>
-        <input
-          type="url"
-          id="conv-endpoint"
-          class="form-input"
-          placeholder="https://api.openai.com/v1"
-        />
-
-        <label class="form-label" for="conv-api-key">API Key</label>
-        <input
-          type="password"
-          id="conv-api-key"
-          class="form-input"
-          placeholder="sk-… (leave empty for local models)"
-        />
-
-        <label class="form-label" for="conv-model">
-          Model <span class="required">*</span>
-        </label>
-        <input
-          type="text"
-          id="conv-model"
-          class="form-input"
-          placeholder="e.g. gpt-4o, llama-3, mistral"
-        />
-
-        <label class="form-label" for="conv-title">Conversation Title</label>
-        <input
-          type="text"
-          id="conv-title"
-          class="form-input"
-          placeholder="New Conversation"
-        />
-
-        <label class="form-label" for="conv-system-prompt">System Prompt</label>
-        <textarea
-          id="conv-system-prompt"
-          class="form-textarea"
-          rows="4"
-          placeholder="You are a helpful assistant…"
-        ></textarea>
-
-        <label class="form-label" for="conv-stream">Streaming</label>
-        <div class="toggle-row">
-          <label class="toggle">
-            <input type="checkbox" id="conv-stream" />
-            <span class="toggle__slider"></span>
-          </label>
-          <span class="toggle__label">Stream responses token by token</span>
+                <div class="modal__footer">
+                    <button
+                        class="btn btn--ghost"
+                        id="btn-conv-cancel"
+                    ></button>
+                    <button
+                        class="btn btn--primary"
+                        id="btn-conv-save"
+                    ></button>
+                </div>
+            </div>
         </div>
 
-      </div>
+        <div class="modal-overlay" id="modal-settings" aria-hidden="true">
+            <div
+                class="modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="modal-settings-title"
+            >
+                <div class="modal__header">
+                    <h2 class="modal__title" id="modal-settings-title">
+                        Global Settings
+                    </h2>
+                    <button class="btn btn--icon" id="btn-close-settings-modal">
+                        &#10005;
+                    </button>
+                </div>
 
-      <div class="modal__footer">
-        <button class="btn btn--ghost"   id="btn-conv-cancel">Cancel</button>
-        <button class="btn btn--primary" id="btn-conv-save">Create</button>
-      </div>
+                <div class="modal__body">
+                    <p class="form-hint">
+                        These values are used as defaults when creating a new
+                        conversation. They do not affect existing conversations.
+                    </p>
 
-    </div>
-  </div>
+                    <label class="form-label" for="settings-endpoint"
+                        >Default API Endpoint</label
+                    >
+                    <input
+                        type="url"
+                        id="settings-endpoint"
+                        class="form-input"
+                        placeholder="https://api.openai.com/v1"
+                    />
 
-  <!--  Global Settings Modal  -->
-  <div class="modal-overlay" id="modal-settings" aria-hidden="true">
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-settings-title">
+                    <label class="form-label" for="settings-api-key"
+                        >Default API Key</label
+                    >
+                    <input
+                        type="password"
+                        id="settings-api-key"
+                        class="form-input"
+                        placeholder="sk-…"
+                    />
 
-      <div class="modal__header">
-        <h2 class="modal__title" id="modal-settings-title">Global Settings</h2>
-        <button class="btn btn--icon" id="btn-close-settings-modal">&#10005;</button>
-      </div>
+                    <label class="form-label" for="settings-model"
+                        >Default Model</label
+                    >
+                    <div class="model-select-row">
+                        <select
+                            id="settings-model"
+                            class="form-input form-select"
+                        ></select>
+                        <button
+                            class="btn btn--ghost btn--icon"
+                            id="btn-add-model"
+                            title="Add custom model"
+                        >
+                            ＋
+                        </button>
+                    </div>
+                    <div
+                        id="add-model-row"
+                        class="add-model-row"
+                        style="display: none"
+                    >
+                        <input
+                            type="text"
+                            id="new-model-name"
+                            class="form-input"
+                            placeholder="e.g. my-custom-model-7b"
+                        />
+                        <button
+                            class="btn btn--primary btn--sm"
+                            id="btn-confirm-add-model"
+                        >
+                            Add
+                        </button>
+                        <button
+                            class="btn btn--ghost btn--sm"
+                            id="btn-cancel-add-model"
+                        >
+                            ✕
+                        </button>
+                    </div>
 
-      <div class="modal__body">
-        <p class="form-hint">
-          These values are used as defaults when creating a new conversation.
-          They do not affect existing conversations.
-        </p>
+                    <label class="form-label" for="settings-system-prompt"
+                        >Default System Prompt</label
+                    >
+                    <textarea
+                        id="settings-system-prompt"
+                        class="form-textarea"
+                        rows="4"
+                        placeholder="You are a helpful assistant…"
+                    ></textarea>
 
-        <label class="form-label" for="settings-endpoint">Default API Endpoint</label>
-        <input
-          type="url"
-          id="settings-endpoint"
-          class="form-input"
-          placeholder="https://api.openai.com/v1"
-        />
+                    <label class="form-label" for="settings-stream"
+                        >Default Streaming</label
+                    >
+                    <div class="toggle-row">
+                        <label class="toggle">
+                            <input type="checkbox" id="settings-stream" />
+                            <span class="toggle__slider"></span>
+                        </label>
+                        <span class="toggle__label"
+                            >Stream responses token by token</span
+                        >
+                    </div>
+                </div>
 
-        <label class="form-label" for="settings-api-key">Default API Key</label>
-        <input
-          type="password"
-          id="settings-api-key"
-          class="form-input"
-          placeholder="sk-…"
-        />
-
-        <label class="form-label" for="settings-model">Default Model</label>
-        <input
-          type="text"
-          id="settings-model"
-          class="form-input"
-          placeholder="e.g. gpt-4o"
-        />
-
-        <label class="form-label" for="settings-system-prompt">Default System Prompt</label>
-        <textarea
-          id="settings-system-prompt"
-          class="form-textarea"
-          rows="4"
-          placeholder="You are a helpful assistant…"
-        ></textarea>
-
-        <label class="form-label" for="settings-stream">Default Streaming</label>
-        <div class="toggle-row">
-          <label class="toggle">
-            <input type="checkbox" id="settings-stream" />
-            <span class="toggle__slider"></span>
-          </label>
-          <span class="toggle__label">Stream responses token by token</span>
+                <div class="modal__footer">
+                    <button class="btn btn--ghost" id="btn-settings-cancel">
+                        Cancel
+                    </button>
+                    <button class="btn btn--primary" id="btn-settings-save">
+                        Save Settings
+                    </button>
+                </div>
+            </div>
         </div>
 
-      </div>
+        <div class="toast" id="toast" aria-live="polite"></div>
 
-      <div class="modal__footer">
-        <button class="btn btn--ghost"   id="btn-settings-cancel">Cancel</button>
-        <button class="btn btn--primary" id="btn-settings-save">Save Settings</button>
-      </div>
-
-    </div>
-  </div>
-
-  <!--  Toast Notification  -->
-  <div class="toast" id="toast" aria-live="polite"></div>
-
-  <script src="app.js"></script>
-</body>
+        <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+        <script src="app.js"></script>
+    </body>
 </html>
