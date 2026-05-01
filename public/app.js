@@ -153,18 +153,11 @@ function closeModal(modalEl) {
     ═══════════════════════════════════════════════════════════════════════════ */
 const MODELS_KEY = "llm_webui_models";
 
-// Built-in suggested models (shown when the user has no custom list yet)
+// Built-in fallback models
 const DEFAULT_MODELS = [
-  "gpt-4o",
-  "gpt-4o-mini",
-  "gpt-4-turbo",
-  "gpt-3.5-turbo",
-  "claude-3-5-sonnet-20241022",
-  "claude-3-haiku-20240307",
-  "llama-3.1-70b-instruct",
-  "mistral-7b-instruct",
-  "gemma-2-27b-it",
-  "qwen2.5-72b-instruct",
+  "claude-sonnet-4.6",
+  "claude-opus-4.6",
+  "claude-opus-4.7",
 ];
 
 function loadModels() {
@@ -192,6 +185,77 @@ function addModel(name) {
 function removeModel(name) {
   state.models = state.models.filter((m) => m !== name);
   saveModels();
+}
+
+/**
+ * Fetch the available models from an OpenAI-compatible /v1/models endpoint.
+ * Returns an array of model id strings, sorted alphabetically.
+ * Returns null if the fetch fails or the endpoint is empty.
+ */
+async function fetchModels(endpoint, apiKey) {
+  if (!endpoint) return null;
+
+  // Normalise: strip trailing slash, then append /models
+  const base = endpoint.replace(/\/+$/, "");
+  const url = `${base}/models`;
+
+  try {
+    const headers = { "Content-Type": "application/json" };
+    if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+
+    const res = await fetch(url, { method: "GET", headers });
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    // Standard OpenAI shape: { data: [ { id, ... }, ... ] }
+    const list = Array.isArray(data?.data)
+      ? data.data.map((m) => m.id).filter(Boolean)
+      : [];
+
+    return list.length ? list.sort() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch models for the given endpoint/key and repopulate a <select>.
+ * Shows a loading indicator while fetching and toasts an error if it fails.
+ * `selectEl`       – the <select> element to populate
+ * `currentModel`   – the model id that should be pre-selected after loading
+ * `onDone`         – optional callback(models) called after a successful fetch
+ */
+async function fetchAndPopulateModels(
+  endpoint,
+  apiKey,
+  selectEl,
+  currentModel,
+  onDone,
+) {
+  endpoint = (endpoint || "").trim();
+  if (!endpoint) return;
+
+  // Show a temporary loading option
+  selectEl.innerHTML = "";
+  const loading = document.createElement("option");
+  loading.textContent = "Loading models…";
+  loading.disabled = true;
+  loading.selected = true;
+  selectEl.appendChild(loading);
+
+  const models = await fetchModels(endpoint, (apiKey || "").trim());
+
+  if (models && models.length) {
+    // Replace the shared in-memory list so both modals stay in sync
+    state.models = models;
+    saveModels();
+    populateModelSelect(selectEl, currentModel);
+    if (onDone) onDone(models);
+  } else {
+    // Restore whatever was in the list before
+    populateModelSelect(selectEl, currentModel);
+    showToast("Could not fetch models from endpoint", "error");
+  }
 }
 
 /**
@@ -435,8 +499,18 @@ async function openEditConversationModal(id) {
     dom.convSystemPrompt.value = conv.system_prompt || "";
     dom.convStream.checked = conv.stream === "true" || conv.stream === true;
 
-    // Populate model dropdown and pre-select the conv's current model
-    populateModelSelect(dom.convModel, conv.model || "");
+    // Try to fetch live models; fall back to cached list
+    const ep = conv.endpoint || "";
+    if (ep) {
+      fetchAndPopulateModels(
+        ep,
+        conv.api_key || "",
+        dom.convModel,
+        conv.model || "",
+      );
+    } else {
+      populateModelSelect(dom.convModel, conv.model || "");
+    }
 
     dom.modalConvTitle.textContent = "Edit Conversation";
     dom.btnConvSave.textContent = "Save Changes";
@@ -665,8 +739,19 @@ function openSettingsModal() {
   dom.settingsSystemPrompt.value = state.settings.system_prompt || "";
   dom.settingsStream.checked = state.settings.stream === "true";
 
-  // Populate model dropdown in settings
-  populateModelSelect(dom.settingsModel, state.settings.model || "");
+  // If there is a saved endpoint, try to fetch live models; otherwise fall
+  // back to whatever is already in state.models.
+  const ep = state.settings.endpoint || "";
+  if (ep) {
+    fetchAndPopulateModels(
+      ep,
+      state.settings.api_key || "",
+      dom.settingsModel,
+      state.settings.model || "",
+    );
+  } else {
+    populateModelSelect(dom.settingsModel, state.settings.model || "");
+  }
 
   // Hide the add-model row if it was left open
   dom.addModelRow.style.display = "none";
@@ -842,6 +927,39 @@ function bindEvents() {
   document
     .getElementById("btn-close-settings-modal")
     .addEventListener("click", () => closeModal(dom.modalSettings));
+
+  // Re-fetch models when the endpoint or API key changes in the Settings modal
+  async function onSettingsEndpointOrKeyChange() {
+    const ep = dom.settingsEndpoint.value.trim();
+    if (!ep) return;
+    const currentModel = dom.settingsModel.value;
+    await fetchAndPopulateModels(
+      ep,
+      dom.settingsApiKey.value.trim(),
+      dom.settingsModel,
+      currentModel,
+    );
+  }
+  dom.settingsEndpoint.addEventListener(
+    "change",
+    onSettingsEndpointOrKeyChange,
+  );
+  dom.settingsApiKey.addEventListener("change", onSettingsEndpointOrKeyChange);
+
+  // Re-fetch models when the endpoint or API key changes in the Conv modal
+  async function onConvEndpointOrKeyChange() {
+    const ep = dom.convEndpoint.value.trim();
+    if (!ep) return;
+    const currentModel = dom.convModel.value;
+    await fetchAndPopulateModels(
+      ep,
+      dom.convApiKey.value.trim(),
+      dom.convModel,
+      currentModel,
+    );
+  }
+  dom.convEndpoint.addEventListener("change", onConvEndpointOrKeyChange);
+  dom.convApiKey.addEventListener("change", onConvEndpointOrKeyChange);
 
   // Add custom model flow
   dom.btnAddModel.addEventListener("click", showAddModelRow);
