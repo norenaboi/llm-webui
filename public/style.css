@@ -120,7 +120,7 @@ html.theme-loaded *::after {
     --sidebar-width: 260px;
     --sidebar-collapsed-width: 52px;
     --topbar-height: 54px;
-    --chat-max-width: 700px;
+    --chat-max-width: 1000px;
     --radius: 10px;
     --radius-sm: 7px;
     --radius-xs: 5px;
@@ -860,6 +860,243 @@ body {
     animation-delay: 0.4s;
 }
 
+/* ── Message action buttons (resend / regenerate) ───────── */
+.message__actions {
+    display: flex;
+    gap: 4px;
+    padding: 0 4px;
+    opacity: 0;
+    transition: opacity var(--transition);
+}
+
+.message:hover .message__actions,
+.message:focus-within .message__actions {
+    opacity: 1;
+}
+
+.btn--resend,
+.btn--edit {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border: 1px solid var(--clr-border);
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--clr-text-muted);
+    font-size: 0.7rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+        background var(--transition),
+        color var(--transition),
+        border-color var(--transition);
+}
+
+.btn--resend:hover,
+.btn--edit:hover {
+    background: var(--clr-surface-2);
+    color: var(--clr-text);
+    border-color: var(--clr-text-muted);
+}
+
+.btn--resend:disabled,
+.btn--edit:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* ── Inline edit: editing state ───────────────────────────── */
+.message--editing .message__bubble {
+    padding: 6px;
+    background: var(--clr-surface) !important;
+    border-color: var(--clr-primary) !important;
+}
+
+.message__edit-area {
+    width: 100%;
+    resize: none;
+    background: transparent;
+    color: var(--clr-text);
+    border: none;
+    outline: none;
+    font-family: var(--font-sans);
+    font-size: inherit;
+    line-height: 1.6;
+    padding: 4px 6px;
+    overflow-y: hidden;
+}
+
+.message__edit-area::placeholder {
+    color: var(--clr-text-muted);
+}
+
+/* ── Inline edit: save / cancel row ──────────────────────── */
+.message__edit-actions {
+    display: flex;
+    gap: 6px;
+    padding: 2px 4px;
+    align-items: center;
+}
+
+.btn--edit-save,
+.btn--edit-cancel {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: var(--radius-pill);
+    font-size: 0.7rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+        background var(--transition),
+        color var(--transition),
+        border-color var(--transition);
+}
+
+.btn--edit-save {
+    background: var(--clr-primary);
+    color: #fff;
+    border: 1px solid var(--clr-primary);
+}
+
+.btn--edit-save:hover {
+    filter: brightness(1.12);
+}
+
+.btn--edit-cancel {
+    background: transparent;
+    color: var(--clr-text-muted);
+    border: 1px solid var(--clr-border);
+}
+
+.btn--edit-cancel:hover {
+    background: var(--clr-surface-2);
+    color: var(--clr-text);
+    border-color: var(--clr-text-muted);
+}
+
+/* ── Attachment preview strip ────────────────────────────── */
+.attachment-preview {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 0;
+    min-height: 0;
+}
+
+.attachment-preview:empty {
+    display: none;
+}
+
+.attachment-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px 4px 6px;
+    background: var(--clr-surface);
+    border: 1px solid var(--clr-border);
+    border-radius: var(--radius-sm);
+    font-size: 0.78rem;
+    color: var(--clr-text);
+    max-width: 220px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+
+.attachment-chip__thumb {
+    width: 28px;
+    height: 28px;
+    object-fit: cover;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
+.attachment-chip__icon {
+    flex-shrink: 0;
+    color: var(--clr-text-muted);
+}
+
+.attachment-chip__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+
+.attachment-chip__remove {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--clr-text-muted);
+    cursor: pointer;
+    font-size: 0.9rem;
+    line-height: 1;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition:
+        background var(--transition),
+        color var(--transition);
+}
+
+.attachment-chip__remove:hover {
+    background: var(--clr-surface-2);
+    color: var(--clr-text);
+}
+
+/* ── Text file chips row (sits between role label and bubble) */
+.message__attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    max-width: 85%;
+}
+
+.message--user .message__attachments {
+    justify-content: flex-end;
+}
+
+.message__file-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px 6px 8px;
+    background: var(--clr-surface);
+    border: 1px solid var(--clr-border);
+    border-radius: var(--radius-sm);
+    font-size: 0.78rem;
+    color: var(--clr-text-muted);
+    max-width: 220px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.message__file-chip svg {
+    flex-shrink: 0;
+    color: var(--clr-text-muted);
+}
+
+.message__file-chip span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+/* ── Inline image inside message bubble ──────────────────── */
+.message__attachment-img {
+    display: block;
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: var(--radius-sm);
+    margin-bottom: 8px;
+    object-fit: contain;
+}
+
 /* ── Markdown prose inside bubbles ──────────────────────── */
 .message__bubble pre {
     background: var(--clr-code-bg);
@@ -996,86 +1233,18 @@ body {
 }
 
 /* ============================================================
-   Input bar  (ChatGPT / OpenRouter style)
+   Utility
    ============================================================ */
-.input-bar {
-    flex-shrink: 0;
-    padding: 14px 16px 18px;
-    background: var(--clr-bg);
-    display: flex;
-    justify-content: center;
-}
-
-.input-bar__wrap {
-    position: relative;
-    width: 100%;
-    max-width: var(--chat-max-width);
-    display: flex;
-    align-items: flex-end;
-    background: var(--clr-surface);
-    border: 1px solid var(--clr-border);
-    border-radius: var(--radius);
-    transition: border-color var(--transition);
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
-}
-
-.input-bar__wrap:focus-within {
-    border-color: var(--clr-primary);
-}
-
-.input-bar__textarea {
-    flex: 1;
-    resize: none;
-    background: transparent;
-    color: var(--clr-text);
-    border: none;
-    outline: none;
-    padding: 12px 14px;
-    font-family: var(--font-sans);
-    font-size: 0.925rem;
-    line-height: 1.55;
-    max-height: 180px;
-    overflow-y: auto;
-}
-
-.input-bar__textarea::placeholder {
-    color: var(--clr-text-muted);
-}
-
-.input-bar__textarea:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-}
-
-/* Send button — inside the input wrap */
-.btn--send {
-    flex-shrink: 0;
-    width: 34px;
-    height: 34px;
-    margin: 0 6px 6px 0;
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
     padding: 0;
-    border: none;
-    border-radius: var(--radius-sm);
-    background: var(--clr-send-btn);
-    color: #fff;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition:
-        background var(--transition),
-        opacity var(--transition);
-}
-
-.btn--send:hover:not(:disabled) {
-    background: var(--clr-send-btn-hover);
-}
-
-.btn--send:disabled {
-    background: var(--clr-surface-2);
-    color: var(--clr-text-faint);
-    cursor: not-allowed;
-    opacity: 1;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
 }
 
 /* ============================================================
@@ -1154,6 +1323,138 @@ body {
     font-size: 0.8rem;
     border-radius: var(--radius-xs);
     flex-shrink: 0;
+}
+
+/* ============================================================
+   Input bar  (ChatGPT / OpenRouter style)
+   ============================================================ */
+.input-bar {
+    flex-shrink: 0;
+    padding: 14px 16px 18px;
+    background: var(--clr-bg);
+    display: flex;
+    justify-content: center;
+}
+
+.input-bar__inner {
+    width: 100%;
+    max-width: var(--chat-max-width);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.input-bar__wrap {
+    position: relative;
+    width: 100%;
+    display: flex;
+    align-items: flex-end;
+    background: var(--clr-surface);
+    border: 1px solid var(--clr-border);
+    border-radius: var(--radius);
+    transition: border-color var(--transition);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+}
+
+.input-bar__wrap:focus-within {
+    border-color: var(--clr-primary);
+}
+
+/* Drag-and-drop active state */
+.input-bar.drag-over .input-bar__wrap {
+    border-color: var(--clr-primary);
+    box-shadow:
+        0 0 0 3px var(--clr-primary-faint),
+        0 2px 12px rgba(0, 0, 0, 0.18);
+    transition:
+        border-color 0.1s ease,
+        box-shadow 0.1s ease;
+}
+
+.input-bar__textarea {
+    flex: 1;
+    resize: none;
+    background: transparent;
+    color: var(--clr-text);
+    border: none;
+    outline: none;
+    padding: 12px 14px;
+    font-family: var(--font-sans);
+    font-size: 0.925rem;
+    line-height: 1.55;
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+.input-bar__textarea::placeholder {
+    color: var(--clr-text-muted);
+}
+
+.input-bar__textarea:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* Upload button — left side of input wrap */
+.btn--upload {
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    margin: 0 0 6px 6px;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--clr-text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition:
+        background var(--transition),
+        color var(--transition);
+}
+
+.btn--upload:hover:not(:disabled) {
+    background: var(--clr-surface-2);
+    color: var(--clr-text);
+}
+
+.btn--upload:disabled {
+    color: var(--clr-text-faint);
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+/* Send button — inside the input wrap */
+.btn--send {
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    margin: 0 6px 6px 0;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--clr-send-btn);
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition:
+        background var(--transition),
+        opacity var(--transition);
+}
+
+.btn--send:hover:not(:disabled) {
+    background: var(--clr-send-btn-hover);
+}
+
+.btn--send:disabled {
+    background: var(--clr-surface-2);
+    color: var(--clr-text-faint);
+    cursor: not-allowed;
+    opacity: 1;
 }
 
 /* ── Theme toggle ─────────────────────────────────────────── */

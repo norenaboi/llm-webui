@@ -9,6 +9,7 @@ const state = {
   editingConvId: null,
   models: [],
   contextMenuConvId: null, // which conv the 3-dot menu is open for
+  pendingAttachments: [], // { type: 'image'|'text', name, mimeType, dataUrl } — in-memory only
 };
 
 /*  ═══════════════════════════════════════════════════════════════════════════
@@ -33,6 +34,9 @@ const dom = {
   // Input bar
   messageInput: document.getElementById("message-input"),
   btnSend: document.getElementById("btn-send"),
+  btnUpload: document.getElementById("btn-upload"),
+  fileUploadInput: document.getElementById("file-upload-input"),
+  attachmentPreview: document.getElementById("attachment-preview"),
   // Edit Conversation modal
   modalConv: document.getElementById("modal-conversation"),
   modalConvTitle: document.getElementById("modal-conv-title"),
@@ -173,6 +177,25 @@ const storage = {
     lsSet(STORAGE_KEYS.messages, msgs);
     storage.updateConversation(conversationId, {});
     return msg;
+  },
+
+  updateMessage(conversationId, messageId, updates) {
+    const msgs = lsGet(STORAGE_KEYS.messages) || {};
+    if (!msgs[conversationId]) return null;
+    const idx = msgs[conversationId].findIndex(
+      (m) => String(m.id) === String(messageId),
+    );
+    if (idx === -1) return null;
+    Object.assign(msgs[conversationId][idx], updates);
+    lsSet(STORAGE_KEYS.messages, msgs);
+    return msgs[conversationId][idx];
+  },
+
+  deleteMessagesFrom(conversationId, fromIndex) {
+    const msgs = lsGet(STORAGE_KEYS.messages) || {};
+    if (!msgs[conversationId]) return;
+    msgs[conversationId] = msgs[conversationId].slice(0, fromIndex);
+    lsSet(STORAGE_KEYS.messages, msgs);
   },
 
   // ── Settings ───────────────────────────────────────────────────────────────
@@ -692,13 +715,45 @@ function renderMessages(messages) {
   }
 
   for (const msg of messages) {
-    appendMessageBubble(msg.role, msg.content, msg.created_at);
+    appendMessageBubble(msg.role, msg.content, msg.created_at, msg.id);
   }
 
   scrollToBottom();
 }
 
-function appendMessageBubble(role, content, timestamp = null) {
+function buildActionsHtml(role) {
+  return `<div class="message__actions">
+    <button class="btn--edit" title="Edit">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Edit
+    </button>
+    <button class="btn--resend">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M3 3v5h5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
+  </div>`;
+}
+
+function addMessageActions(wrapper, role, messageId) {
+  wrapper.dataset.messageId = String(messageId);
+  const existing = wrapper.querySelector(".message__actions");
+  if (existing) existing.remove();
+  wrapper.insertAdjacentHTML("beforeend", buildActionsHtml(role));
+}
+
+function appendMessageBubble(
+  role,
+  content,
+  timestamp = null,
+  messageId = null,
+  imageAttachments = [],
+  textAttachments = [],
+) {
   const empty = dom.messages.querySelector(".empty-state");
   if (empty) empty.remove();
 
@@ -715,19 +770,52 @@ function appendMessageBubble(role, content, timestamp = null) {
         minute: "2-digit",
       });
 
-  const bubbleContent =
+  let bubbleInner =
     role === "user"
       ? `<span style="white-space: pre-wrap">${escapeHtml(content)}</span>`
       : formatMessageContent(content);
 
+  // Prepend any inline images inside the bubble (in-memory only, not persisted)
+  if (imageAttachments.length > 0 && role === "user") {
+    const imgsHtml = imageAttachments
+      .map(
+        (a) =>
+          `<img class="message__attachment-img" src="${a.dataUrl}" alt="${escapeHtml(a.name)}" />`,
+      )
+      .join("");
+    bubbleInner = imgsHtml + bubbleInner;
+  }
+
   const roleLabel = role === "user" ? "You" : "Assistant";
 
-  wrapper.innerHTML = `
+  // Build text file chips as a separate row above the bubble (in-memory only, not persisted)
+  let attachmentsHtml = "";
+  if (textAttachments.length > 0 && role === "user") {
+    const chipsHtml = textAttachments
+      .map(
+        (a) =>
+          `<div class="message__file-chip">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 1H3a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V5L9 1z" stroke="currentColor" stroke-width="1.5"/><path d="M9 1v4h4" stroke="currentColor" stroke-width="1.5"/></svg>
+            <span>${escapeHtml(a.name)}</span>
+          </div>`,
+      )
+      .join("");
+    attachmentsHtml = `<div class="message__attachments">${chipsHtml}</div>`;
+  }
+
+  let html = `
     <span class="message__role">${roleLabel}</span>
-    <div class="message__bubble">${bubbleContent}</div>
+    ${attachmentsHtml}
+    <div class="message__bubble">${bubbleInner}</div>
     <span class="message__time">${time}</span>
   `;
 
+  if (messageId != null) {
+    wrapper.dataset.messageId = String(messageId);
+    html += buildActionsHtml(role);
+  }
+
+  wrapper.innerHTML = html;
   dom.messages.appendChild(wrapper);
   return wrapper;
 }
@@ -957,6 +1045,20 @@ async function sendMessage() {
   const content = dom.messageInput.value.trim();
   if (!content || state.isLoading || !state.activeConversationId) return;
 
+  dom.messageInput.value = "";
+  resetTextareaHeight();
+
+  // Capture and clear pending attachments before dispatching
+  const attachments = [...state.pendingAttachments];
+  state.pendingAttachments = [];
+  renderAttachmentPreview();
+
+  await dispatchSend(content, attachments);
+}
+
+async function dispatchSend(content, attachments = []) {
+  if (!content || state.isLoading || !state.activeConversationId) return;
+
   const activeConv = state.conversations.find(
     (c) => c.id === state.activeConversationId,
   );
@@ -965,18 +1067,25 @@ async function sendMessage() {
 
   state.isLoading = true;
   disableInput();
-  dom.messageInput.value = "";
-  resetTextareaHeight();
 
-  appendMessageBubble("user", content);
+  const imageAttachments = attachments.filter((a) => a.type === "image");
+  const textAttachments = attachments.filter((a) => a.type === "text");
+  const userWrapper = appendMessageBubble(
+    "user",
+    content,
+    null,
+    null,
+    imageAttachments,
+    textAttachments,
+  );
   appendThinkingBubble();
   scrollToBottom();
 
   try {
     if (useStreaming) {
-      await sendMessageStreaming(content);
+      await sendMessageStreaming(content, userWrapper, attachments);
     } else {
-      await sendMessageBlocking(content);
+      await sendMessageBlocking(content, userWrapper, attachments);
     }
     loadConversations();
   } catch (err) {
@@ -991,19 +1100,289 @@ async function sendMessage() {
   }
 }
 
-async function sendMessageBlocking(content) {
+async function resendFromMessage(messageId) {
+  if (state.isLoading || !state.activeConversationId) return;
+
+  const messages = storage.getMessages(state.activeConversationId);
+  const idx = messages.findIndex((m) => String(m.id) === String(messageId));
+  if (idx === -1) return;
+
+  const msg = messages[idx];
+  let userContent;
+  let deleteFromIdx;
+
+  if (msg.role === "user") {
+    userContent = msg.content;
+    deleteFromIdx = idx;
+  } else if (msg.role === "assistant") {
+    // Walk back to find the preceding user message
+    let prevUserIdx = -1;
+    for (let i = idx - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        prevUserIdx = i;
+        break;
+      }
+    }
+    if (prevUserIdx === -1) return;
+    userContent = messages[prevUserIdx].content;
+    deleteFromIdx = prevUserIdx;
+  } else {
+    return;
+  }
+
+  storage.deleteMessagesFrom(state.activeConversationId, deleteFromIdx);
+  renderMessages(storage.getMessages(state.activeConversationId));
+  await dispatchSend(userContent);
+}
+
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Inline Edit
+    ═══════════════════════════════════════════════════════════════════════════ */
+function startEditMessage(wrapper, role, messageId) {
+  // Prevent opening a second edit session on the same message
+  if (wrapper.classList.contains("message--editing")) return;
+
+  const messages = storage.getMessages(state.activeConversationId);
+  const msg = messages.find((m) => String(m.id) === String(messageId));
+  if (!msg) return;
+
+  const originalContent = msg.content;
+
+  wrapper.classList.add("message--editing");
+
+  // ── Swap bubble into an editable textarea ─────────────────
+  const bubble = wrapper.querySelector(".message__bubble");
+  const originalBubbleHtml = bubble.innerHTML;
+  bubble.innerHTML = "";
+
+  const textarea = document.createElement("textarea");
+  textarea.className = "message__edit-area";
+  textarea.value = originalContent;
+  bubble.appendChild(textarea);
+
+  // Auto-size the textarea to fit its content
+  textarea.style.height = "auto";
+  textarea.style.height = Math.min(textarea.scrollHeight, 480) + "px";
+  textarea.addEventListener("input", () => {
+    textarea.style.height = "auto";
+    textarea.style.height = Math.min(textarea.scrollHeight, 480) + "px";
+  });
+  textarea.focus();
+  textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+
+  // ── Swap action row into save / cancel controls ────────────
+  const actionsEl = wrapper.querySelector(".message__actions");
+  const editActionsEl = document.createElement("div");
+  editActionsEl.className = "message__edit-actions";
+  const saveLabel = role === "user" ? "Save" : "Save";
+  editActionsEl.innerHTML = `
+    <button class="btn--edit-save">${saveLabel}</button>
+    <button class="btn--edit-cancel">Cancel</button>
+  `;
+  if (actionsEl) {
+    actionsEl.replaceWith(editActionsEl);
+  } else {
+    wrapper.appendChild(editActionsEl);
+  }
+
+  // ── Wire up save / cancel ──────────────────────────────────
+  const doSave = () =>
+    commitEdit(
+      wrapper,
+      role,
+      messageId,
+      textarea.value,
+      originalBubbleHtml,
+      editActionsEl,
+    );
+  const doCancel = () =>
+    cancelEdit(wrapper, originalBubbleHtml, editActionsEl, role, messageId);
+
+  editActionsEl
+    .querySelector(".btn--edit-save")
+    .addEventListener("click", doSave);
+  editActionsEl
+    .querySelector(".btn--edit-cancel")
+    .addEventListener("click", doCancel);
+
+  textarea.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      doSave();
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      doCancel();
+    }
+  });
+}
+
+async function commitEdit(
+  wrapper,
+  role,
+  messageId,
+  newContent,
+  originalBubbleHtml,
+  editActionsEl,
+) {
+  const trimmed = newContent.trim();
+  if (!trimmed) return; // don't save empty
+
+  wrapper.classList.remove("message--editing");
+
+  if (role === "user") {
+    // Delete this message and everything after it, then re-send with new text
+    const messages = storage.getMessages(state.activeConversationId);
+    const idx = messages.findIndex((m) => String(m.id) === String(messageId));
+    if (idx !== -1) storage.deleteMessagesFrom(state.activeConversationId, idx);
+    renderMessages(storage.getMessages(state.activeConversationId));
+    await dispatchSend(trimmed);
+  } else {
+    // assistant — update in storage and re-render the bubble in place
+    storage.updateMessage(state.activeConversationId, messageId, {
+      content: trimmed,
+    });
+    const bubble = wrapper.querySelector(".message__bubble");
+    bubble.innerHTML = formatMessageContent(trimmed);
+    // Restore standard action buttons
+    if (editActionsEl) editActionsEl.remove();
+    addMessageActions(wrapper, role, messageId);
+  }
+}
+
+function cancelEdit(
+  wrapper,
+  originalBubbleHtml,
+  editActionsEl,
+  role,
+  messageId,
+) {
+  wrapper.classList.remove("message--editing");
+  // Restore the original bubble HTML
+  const bubble = wrapper.querySelector(".message__bubble");
+  bubble.innerHTML = originalBubbleHtml;
+  // Restore standard action buttons
+  if (editActionsEl) editActionsEl.remove();
+  addMessageActions(wrapper, role, messageId);
+}
+
+/*  ═══════════════════════════════════════════════════════════════════════════
+    File Upload
+    ═══════════════════════════════════════════════════════════════════════════ */
+function handleFileUpload(files) {
+  // Accept either a DOM Event (from file input) or a FileList/Array (from drag-and-drop)
+  const fileList =
+    files instanceof Event ? Array.from(files.target.files) : Array.from(files);
+  if (!fileList.length) return;
+
+  for (const file of fileList) {
+    if (file.type.startsWith("image/")) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        state.pendingAttachments.push({
+          type: "image",
+          name: file.name,
+          mimeType: file.type,
+          dataUrl: e.target.result,
+        });
+        renderAttachmentPreview();
+      };
+      reader.readAsDataURL(file);
+    } else {
+      // Text-based file: store as an attachment chip (content sent to LLM on dispatch)
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        state.pendingAttachments.push({
+          type: "text",
+          name: file.name,
+          content: e.target.result,
+        });
+        renderAttachmentPreview();
+      };
+      reader.readAsText(file);
+    }
+  }
+
+  // Reset the file input so the same file can be re-selected
+  if (files instanceof Event) files.target.value = "";
+}
+
+function renderAttachmentPreview() {
+  const preview = dom.attachmentPreview;
+  if (!preview) return;
+
+  if (!state.pendingAttachments.length) {
+    preview.innerHTML = "";
+    return;
+  }
+
+  preview.innerHTML = state.pendingAttachments
+    .map(
+      (att, i) => `
+        <div class="attachment-chip" data-index="${i}">
+          ${
+            att.type === "image"
+              ? `<img class="attachment-chip__thumb" src="${att.dataUrl}" alt="${escapeHtml(att.name)}" />`
+              : `<svg class="attachment-chip__icon" width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 1H3a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V5L9 1z" stroke="currentColor" stroke-width="1.5"/><path d="M9 1v4h4" stroke="currentColor" stroke-width="1.5"/></svg>`
+          }
+          <span class="attachment-chip__name">${escapeHtml(att.name)}</span>
+          <button class="attachment-chip__remove" data-index="${i}" title="Remove">&times;</button>
+        </div>`,
+    )
+    .join("");
+}
+
+async function sendMessageBlocking(
+  content,
+  userWrapper = null,
+  attachments = [],
+) {
   const conv = storage.getConversation(state.activeConversationId);
   if (!conv) throw new Error("Conversation not found");
 
-  storage.addMessage(state.activeConversationId, { role: "user", content });
+  const userMsg = storage.addMessage(state.activeConversationId, {
+    role: "user",
+    content,
+  });
+  if (userWrapper) addMessageActions(userWrapper, "user", userMsg.id);
 
   const history = storage.getMessages(state.activeConversationId);
   const llmMessages = [];
   if (conv.system_prompt && conv.system_prompt.trim()) {
     llmMessages.push({ role: "system", content: conv.system_prompt.trim() });
   }
-  for (const msg of history) {
-    llmMessages.push({ role: msg.role, content: msg.content });
+
+  const imageAttachments = attachments.filter((a) => a.type === "image");
+  const textAttachments = attachments.filter((a) => a.type === "text");
+  for (let i = 0; i < history.length; i++) {
+    const msg = history[i];
+    // Last user message: inject text file contents + image vision parts
+    if (
+      i === history.length - 1 &&
+      msg.role === "user" &&
+      (imageAttachments.length > 0 || textAttachments.length > 0)
+    ) {
+      let fullContent = msg.content;
+      if (textAttachments.length > 0) {
+        fullContent += textAttachments
+          .map((a) => `\n\n[File: ${a.name}]\n\`\`\`\n${a.content}\n\`\`\``)
+          .join("");
+      }
+      if (imageAttachments.length > 0) {
+        const contentParts = [{ type: "text", text: fullContent }];
+        for (const att of imageAttachments) {
+          contentParts.push({
+            type: "image_url",
+            image_url: { url: att.dataUrl },
+          });
+        }
+        llmMessages.push({ role: msg.role, content: contentParts });
+      } else {
+        llmMessages.push({ role: msg.role, content: fullContent });
+      }
+    } else {
+      llmMessages.push({ role: msg.role, content: msg.content });
+    }
   }
 
   const baseUrl = conv.endpoint.replace(/\/+$/, "");
@@ -1038,27 +1417,66 @@ async function sendMessageBlocking(content) {
   });
 
   removeThinkingBubble();
-  appendMessageBubble(
+  const assistantWrapper = appendMessageBubble(
     "assistant",
     assistantMessage.content,
     assistantMessage.created_at,
   );
+  addMessageActions(assistantWrapper, "assistant", assistantMessage.id);
   scrollToBottom();
 }
 
-async function sendMessageStreaming(content) {
+async function sendMessageStreaming(
+  content,
+  userWrapper = null,
+  attachments = [],
+) {
   const conv = storage.getConversation(state.activeConversationId);
   if (!conv) throw new Error("Conversation not found");
 
-  storage.addMessage(state.activeConversationId, { role: "user", content });
+  const userMsg = storage.addMessage(state.activeConversationId, {
+    role: "user",
+    content,
+  });
+  if (userWrapper) addMessageActions(userWrapper, "user", userMsg.id);
 
   const history = storage.getMessages(state.activeConversationId);
   const llmMessages = [];
   if (conv.system_prompt && conv.system_prompt.trim()) {
     llmMessages.push({ role: "system", content: conv.system_prompt.trim() });
   }
-  for (const msg of history) {
-    llmMessages.push({ role: msg.role, content: msg.content });
+
+  const imageAttachments = attachments.filter((a) => a.type === "image");
+  const textAttachments = attachments.filter((a) => a.type === "text");
+  for (let i = 0; i < history.length; i++) {
+    const msg = history[i];
+    // Last user message: inject text file contents + image vision parts
+    if (
+      i === history.length - 1 &&
+      msg.role === "user" &&
+      (imageAttachments.length > 0 || textAttachments.length > 0)
+    ) {
+      let fullContent = msg.content;
+      if (textAttachments.length > 0) {
+        fullContent += textAttachments
+          .map((a) => `\n\n[File: ${a.name}]\n\`\`\`\n${a.content}\n\`\`\``)
+          .join("");
+      }
+      if (imageAttachments.length > 0) {
+        const contentParts = [{ type: "text", text: fullContent }];
+        for (const att of imageAttachments) {
+          contentParts.push({
+            type: "image_url",
+            image_url: { url: att.dataUrl },
+          });
+        }
+        llmMessages.push({ role: msg.role, content: contentParts });
+      } else {
+        llmMessages.push({ role: msg.role, content: fullContent });
+      }
+    } else {
+      llmMessages.push({ role: msg.role, content: msg.content });
+    }
   }
 
   const headers = { "Content-Type": "application/json" };
@@ -1126,10 +1544,11 @@ async function sendMessageStreaming(content) {
         }
 
         if (fullContent.trim()) {
-          storage.addMessage(state.activeConversationId, {
+          const savedMsg = storage.addMessage(state.activeConversationId, {
             role: "assistant",
             content: fullContent,
           });
+          addMessageActions(wrapper, "assistant", savedMsg.id);
         }
 
         scrollToBottom();
@@ -1209,11 +1628,13 @@ async function saveSettingsModal() {
 function enableInput() {
   dom.messageInput.disabled = false;
   dom.btnSend.disabled = false;
+  if (dom.btnUpload) dom.btnUpload.disabled = false;
 }
 
 function disableInput() {
   dom.messageInput.disabled = true;
   dom.btnSend.disabled = true;
+  if (dom.btnUpload) dom.btnUpload.disabled = true;
 }
 
 function resetTextareaHeight() {
@@ -1423,7 +1844,7 @@ function bindEvents() {
     }
   });
 
-  // ── Send message ───────────────────────────────────────────
+  // ── Send message ───────────────────────────────────────────────────
   dom.btnSend.addEventListener("click", sendMessage);
   dom.messageInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -1438,6 +1859,82 @@ function bindEvents() {
     dom.messageInput.style.height =
       Math.min(dom.messageInput.scrollHeight, 180) + "px";
   });
+
+  // ── Resend / Regenerate / Edit buttons (event delegation) ─────
+  dom.messages.addEventListener("click", (e) => {
+    const resendBtn = e.target.closest(".btn--resend");
+    if (resendBtn) {
+      const wrapper = resendBtn.closest(".message[data-message-id]");
+      if (wrapper) resendFromMessage(wrapper.dataset.messageId);
+      return;
+    }
+
+    const editBtn = e.target.closest(".btn--edit");
+    if (editBtn) {
+      const wrapper = editBtn.closest(".message[data-message-id]");
+      if (wrapper) {
+        const role = wrapper.classList.contains("message--user")
+          ? "user"
+          : "assistant";
+        startEditMessage(wrapper, role, wrapper.dataset.messageId);
+      }
+    }
+  });
+
+  // ── File upload ──────────────────────────────────────────────
+  if (dom.btnUpload) {
+    dom.btnUpload.addEventListener("click", () => {
+      dom.fileUploadInput.click();
+    });
+  }
+  if (dom.fileUploadInput) {
+    dom.fileUploadInput.addEventListener("change", handleFileUpload);
+  }
+
+  // ── Drag and drop onto the main chat area ───────────────────
+  // Listening on #main so the whole chat surface accepts drops,
+  // but the visual glow effect is applied to #input-bar only.
+  const mainEl = document.getElementById("main");
+  const inputBar = document.getElementById("input-bar");
+  if (mainEl && inputBar) {
+    mainEl.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      if (!state.activeConversationId) return;
+      inputBar.classList.add("drag-over");
+    });
+    mainEl.addEventListener("dragenter", (e) => {
+      e.preventDefault();
+      if (!state.activeConversationId) return;
+      inputBar.classList.add("drag-over");
+    });
+    mainEl.addEventListener("dragleave", (e) => {
+      if (!mainEl.contains(e.relatedTarget)) {
+        inputBar.classList.remove("drag-over");
+      }
+    });
+    mainEl.addEventListener("drop", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      inputBar.classList.remove("drag-over");
+      if (!state.activeConversationId) return;
+      const files = e.dataTransfer.files;
+      if (files && files.length) handleFileUpload(files);
+    });
+  }
+
+  // ── Attachment chip removal ────────────────────────────────
+  if (dom.attachmentPreview) {
+    dom.attachmentPreview.addEventListener("click", (e) => {
+      const removeBtn = e.target.closest(".attachment-chip__remove");
+      if (removeBtn) {
+        const idx = parseInt(removeBtn.dataset.index, 10);
+        if (!isNaN(idx)) {
+          state.pendingAttachments.splice(idx, 1);
+          renderAttachmentPreview();
+        }
+      }
+    });
+  }
 }
 
 /*  ═══════════════════════════════════════════════════════════════════════════
