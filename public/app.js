@@ -1,4 +1,4 @@
-﻿/*  ═══════════════════════════════════════════════════════════════════════════
+/*  ═══════════════════════════════════════════════════════════════════════════
     State
     ═══════════════════════════════════════════════════════════════════════════ */
 const state = {
@@ -6,8 +6,9 @@ const state = {
   activeConversationId: null,
   settings: {},
   isLoading: false,
-  editingConvId: null, // null = n/a, number = editing existing conv
-  models: [], // persisted model list
+  editingConvId: null,
+  models: [],
+  contextMenuConvId: null, // which conv the 3-dot menu is open for
 };
 
 /*  ═══════════════════════════════════════════════════════════════════════════
@@ -21,12 +22,18 @@ const dom = {
   // Messages
   messages: document.getElementById("messages"),
   // Topbar
-  topbarMeta: document.getElementById("topbar-meta"),
-  btnDeleteChat: document.getElementById("btn-delete-chat"),
+  topbarTitle: document.getElementById("topbar-title"),
+  // Topbar model selector (custom dropdown)
+  topbarModel: document.getElementById("topbar-model"),
+  modelSelectorTrigger: document.getElementById("model-selector-trigger"),
+  modelSelectorDropdown: document.getElementById("model-selector-dropdown"),
+  modelSelectorLabel: document.getElementById("model-selector-label"),
+  modelSelectorSearch: document.getElementById("model-selector-search"),
+  modelSelectorList: document.getElementById("model-selector-list"),
   // Input bar
   messageInput: document.getElementById("message-input"),
   btnSend: document.getElementById("btn-send"),
-  // Edit Conversation modal (only used for editing existing convs now)
+  // Edit Conversation modal
   modalConv: document.getElementById("modal-conversation"),
   modalConvTitle: document.getElementById("modal-conv-title"),
   convEndpoint: document.getElementById("conv-endpoint"),
@@ -37,19 +44,17 @@ const dom = {
   convStream: document.getElementById("conv-stream"),
   btnConvSave: document.getElementById("btn-conv-save"),
   btnConvCancel: document.getElementById("btn-conv-cancel"),
-  // Settings modal
+  // Settings modal (no model select here anymore)
   modalSettings: document.getElementById("modal-settings"),
   settingsEndpoint: document.getElementById("settings-endpoint"),
   settingsApiKey: document.getElementById("settings-api-key"),
-  settingsModel: document.getElementById("settings-model"),
   settingsSystemPrompt: document.getElementById("settings-system-prompt"),
   settingsStream: document.getElementById("settings-stream"),
-  // Model management inside settings
-  btnAddModel: document.getElementById("btn-add-model"),
-  addModelRow: document.getElementById("add-model-row"),
-  newModelName: document.getElementById("new-model-name"),
-  btnConfirmAddModel: document.getElementById("btn-confirm-add-model"),
-  btnCancelAddModel: document.getElementById("btn-cancel-add-model"),
+  // Context menu (3-dot)
+  convContextMenu: document.getElementById("conv-context-menu"),
+  ctxRename: document.getElementById("ctx-rename"),
+  ctxDuplicate: document.getElementById("ctx-duplicate"),
+  ctxDelete: document.getElementById("ctx-delete"),
   // Theme toggle
   btnThemeToggle: document.getElementById("btn-theme-toggle"),
   // Toast
@@ -57,35 +62,131 @@ const dom = {
 };
 
 /*  ═══════════════════════════════════════════════════════════════════════════
-    API Helpers
+    localStorage Storage Layer
     ═══════════════════════════════════════════════════════════════════════════ */
-const api = {
-  async request(method, path, body = null) {
-    const opts = {
-      method,
-      headers: { "Content-Type": "application/json" },
-    };
-    if (body) opts.body = JSON.stringify(body);
+const STORAGE_KEYS = {
+  conversations: "llm_webui_conversations",
+  messages: "llm_webui_messages",
+  settings: "llm_webui_settings",
+};
 
-    const res = await fetch(`/api${path}`, opts);
-    if (res.status === 204) return null;
+function lsGet(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
 
-    const data = await res.json();
-    if (!res.ok)
-      throw new Error(data?.error || `Request failed (${res.status})`);
-    return data;
+function lsSet(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+const storage = {
+  // ── Conversations ──────────────────────────────────────────────────────────
+
+  getConversations() {
+    const convs = lsGet(STORAGE_KEYS.conversations) || [];
+    return [...convs].sort(
+      (a, b) => new Date(b.updated_at) - new Date(a.updated_at),
+    );
   },
 
-  getConversations: () => api.request("GET", "/conversations"),
-  getConversation: (id) => api.request("GET", `/conversations/${id}`),
-  createConversation: (body) => api.request("POST", "/conversations", body),
-  updateConversation: (id, body) =>
-    api.request("PATCH", `/conversations/${id}`, body),
-  deleteConversation: (id) => api.request("DELETE", `/conversations/${id}`),
-  sendMessage: (id, content) =>
-    api.request("POST", `/conversations/${id}/messages`, { content }),
-  getSettings: () => api.request("GET", "/settings"),
-  saveSettings: (body) => api.request("POST", "/settings", body),
+  getConversation(id) {
+    const convs = lsGet(STORAGE_KEYS.conversations) || [];
+    const conv = convs.find((c) => c.id === id);
+    if (!conv) return null;
+    const messages = storage.getMessages(id);
+    return { ...conv, messages };
+  },
+
+  createConversation({
+    title = "New Conversation",
+    model = "",
+    system_prompt = "",
+    endpoint = "",
+    api_key = "",
+    stream = "false",
+  }) {
+    const convs = lsGet(STORAGE_KEYS.conversations) || [];
+    const now = new Date().toISOString();
+    const id = Date.now();
+    const conv = {
+      id,
+      title,
+      model,
+      system_prompt,
+      endpoint,
+      api_key,
+      stream,
+      created_at: now,
+      updated_at: now,
+    };
+    convs.push(conv);
+    lsSet(STORAGE_KEYS.conversations, convs);
+    return conv;
+  },
+
+  updateConversation(id, fields) {
+    const convs = lsGet(STORAGE_KEYS.conversations) || [];
+    const idx = convs.findIndex((c) => c.id === id);
+    if (idx === -1) return null;
+    convs[idx] = {
+      ...convs[idx],
+      ...fields,
+      updated_at: new Date().toISOString(),
+    };
+    lsSet(STORAGE_KEYS.conversations, convs);
+    return convs[idx];
+  },
+
+  deleteConversation(id) {
+    const convs = lsGet(STORAGE_KEYS.conversations) || [];
+    const next = convs.filter((c) => c.id !== id);
+    lsSet(STORAGE_KEYS.conversations, next);
+    const msgs = lsGet(STORAGE_KEYS.messages) || {};
+    delete msgs[id];
+    lsSet(STORAGE_KEYS.messages, msgs);
+    return true;
+  },
+
+  // ── Messages ───────────────────────────────────────────────────────────────
+
+  getMessages(conversationId) {
+    const msgs = lsGet(STORAGE_KEYS.messages) || {};
+    return msgs[conversationId] || [];
+  },
+
+  addMessage(conversationId, { role, content }) {
+    const msgs = lsGet(STORAGE_KEYS.messages) || {};
+    if (!msgs[conversationId]) msgs[conversationId] = [];
+    const now = new Date().toISOString();
+    const msg = {
+      id: Date.now(),
+      conversation_id: conversationId,
+      role,
+      content,
+      created_at: now,
+    };
+    msgs[conversationId].push(msg);
+    lsSet(STORAGE_KEYS.messages, msgs);
+    storage.updateConversation(conversationId, {});
+    return msg;
+  },
+
+  // ── Settings ───────────────────────────────────────────────────────────────
+
+  getSettings() {
+    return lsGet(STORAGE_KEYS.settings) || {};
+  },
+
+  saveSettings(obj) {
+    const current = lsGet(STORAGE_KEYS.settings) || {};
+    const updated = { ...current, ...obj };
+    lsSet(STORAGE_KEYS.settings, updated);
+    return updated;
+  },
 };
 
 /*  ═══════════════════════════════════════════════════════════════════════════
@@ -96,7 +197,6 @@ function initTheme() {
   document.documentElement.setAttribute("data-theme", saved);
   updateThemeIcon(saved);
 
-  // Unlock smooth transitions after initial paint (avoids flash)
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       document.documentElement.classList.add("theme-loaded");
@@ -128,7 +228,6 @@ let toastTimer = null;
 function showToast(message, type = "info") {
   dom.toast.textContent = message;
   dom.toast.className = `toast show${type !== "info" ? ` toast--${type}` : ""}`;
-
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
     dom.toast.classList.remove("show");
@@ -153,12 +252,7 @@ function closeModal(modalEl) {
     ═══════════════════════════════════════════════════════════════════════════ */
 const MODELS_KEY = "llm_webui_models";
 
-// Built-in fallback models
-const DEFAULT_MODELS = [
-  "claude-sonnet-4.6",
-  "claude-opus-4.6",
-  "claude-opus-4.7",
-];
+const DEFAULT_MODELS = ["gpt-4o", "gpt-4o-mini", "claude-opus-4-5"];
 
 function loadModels() {
   try {
@@ -176,7 +270,7 @@ function saveModels() {
 function addModel(name) {
   name = name.trim();
   if (!name) return false;
-  if (state.models.includes(name)) return false; // already exists
+  if (state.models.includes(name)) return false;
   state.models.push(name);
   saveModels();
   return true;
@@ -189,13 +283,10 @@ function removeModel(name) {
 
 /**
  * Fetch the available models from an OpenAI-compatible /v1/models endpoint.
- * Returns an array of model id strings, sorted alphabetically.
- * Returns null if the fetch fails or the endpoint is empty.
  */
 async function fetchModels(endpoint, apiKey) {
   if (!endpoint) return null;
 
-  // Normalise: strip trailing slash, then append /models
   const base = endpoint.replace(/\/+$/, "");
   const url = `${base}/models`;
 
@@ -207,7 +298,6 @@ async function fetchModels(endpoint, apiKey) {
     if (!res.ok) return null;
 
     const data = await res.json();
-    // Standard OpenAI shape: { data: [ { id, ... }, ... ] }
     const list = Array.isArray(data?.data)
       ? data.data.map((m) => m.id).filter(Boolean)
       : [];
@@ -220,10 +310,6 @@ async function fetchModels(endpoint, apiKey) {
 
 /**
  * Fetch models for the given endpoint/key and repopulate a <select>.
- * Shows a loading indicator while fetching and toasts an error if it fails.
- * `selectEl`       – the <select> element to populate
- * `currentModel`   – the model id that should be pre-selected after loading
- * `onDone`         – optional callback(models) called after a successful fetch
  */
 async function fetchAndPopulateModels(
   endpoint,
@@ -235,7 +321,6 @@ async function fetchAndPopulateModels(
   endpoint = (endpoint || "").trim();
   if (!endpoint) return;
 
-  // Show a temporary loading option
   selectEl.innerHTML = "";
   const loading = document.createElement("option");
   loading.textContent = "Loading models…";
@@ -246,28 +331,30 @@ async function fetchAndPopulateModels(
   const models = await fetchModels(endpoint, (apiKey || "").trim());
 
   if (models && models.length) {
-    // Replace the shared in-memory list so both modals stay in sync
     state.models = models;
     saveModels();
     populateModelSelect(selectEl, currentModel);
+    if (selectEl === dom.topbarModel) {
+      renderCustomDropdown(currentModel);
+      _syncDropdownLabel(currentModel);
+    }
     if (onDone) onDone(models);
   } else {
-    // Restore whatever was in the list before
     populateModelSelect(selectEl, currentModel);
+    if (selectEl === dom.topbarModel) {
+      renderCustomDropdown(currentModel);
+      _syncDropdownLabel(currentModel);
+    }
     showToast("Could not fetch models from endpoint", "error");
   }
 }
 
 /**
  * Populate a <select> element with the current model list.
- * If `selectedValue` is provided, that option is pre-selected;
- * otherwise the first option is selected.
- * A placeholder "— select model —" option is prepended.
  */
 function populateModelSelect(selectEl, selectedValue = "") {
   selectEl.innerHTML = "";
 
-  // Placeholder
   const placeholder = document.createElement("option");
   placeholder.value = "";
   placeholder.textContent = "— select model —";
@@ -283,15 +370,90 @@ function populateModelSelect(selectEl, selectedValue = "") {
     selectEl.appendChild(opt);
   }
 
-  // If selectedValue isn't in the list (e.g. an old conversation has an
-  // unlisted model), add it as a one-off option so it isn't lost.
   if (selectedValue && !state.models.includes(selectedValue)) {
     const opt = document.createElement("option");
     opt.value = selectedValue;
     opt.textContent = selectedValue + " (custom)";
     opt.selected = true;
-    selectEl.insertBefore(opt, selectEl.children[1]); // after placeholder
+    selectEl.insertBefore(opt, selectEl.children[1]);
   }
+}
+
+/**
+ * Populate the topbar model selector (always visible).
+ * If a conversation is active, its model is pre-selected.
+ * When no conversation is active, falls back to settings.model.
+ */
+function populateTopbarModelSelect(selectedValue) {
+  const val =
+    selectedValue !== undefined
+      ? selectedValue
+      : state.activeConversationId
+        ? (
+            state.conversations.find(
+              (c) => c.id === state.activeConversationId,
+            ) || {}
+          ).model || ""
+        : state.settings.model || "";
+  populateModelSelect(dom.topbarModel, val);
+  renderCustomDropdown(val);
+  _syncDropdownLabel(val);
+}
+
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Custom Model Dropdown
+    ═══════════════════════════════════════════════════════════════════════════ */
+function renderCustomDropdown(selectedValue, filter = "") {
+  const list = dom.modelSelectorList;
+  list.innerHTML = "";
+
+  const models = filter
+    ? state.models.filter((m) => m.toLowerCase().includes(filter.toLowerCase()))
+    : state.models;
+
+  if (models.length === 0) {
+    list.innerHTML = `<div class="model-selector__empty">No models found</div>`;
+    return;
+  }
+
+  for (const m of models) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className =
+      "model-selector__option" + (m === selectedValue ? " selected" : "");
+    btn.dataset.value = m;
+    btn.innerHTML = `
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis">${escapeHtml(m)}</span>
+      <svg class="model-selector__check" viewBox="0 0 13 13" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M2 7l3 3 6-6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>`;
+    btn.addEventListener("click", () => {
+      selectTopbarModel(m);
+      closeCustomDropdown();
+    });
+    list.appendChild(btn);
+  }
+}
+
+function openCustomDropdown() {
+  dom.modelSelectorDropdown.classList.add("open");
+  dom.modelSelectorTrigger.setAttribute("aria-expanded", "true");
+  dom.modelSelectorSearch.value = "";
+  renderCustomDropdown(dom.topbarModel.value);
+  dom.modelSelectorSearch.focus();
+}
+
+function closeCustomDropdown() {
+  dom.modelSelectorDropdown.classList.remove("open");
+  dom.modelSelectorTrigger.setAttribute("aria-expanded", "false");
+}
+
+function selectTopbarModel(value) {
+  dom.topbarModel.value = value;
+  dom.modelSelectorLabel.textContent = value || "Select model";
+  dom.modelSelectorLabel.classList.toggle("placeholder", !value);
+  // Trigger the existing handler
+  onTopbarModelChange();
 }
 
 /*  ═══════════════════════════════════════════════════════════════════════════
@@ -301,8 +463,8 @@ function renderConversationList() {
   dom.convList.innerHTML = "";
 
   if (state.conversations.length === 0) {
-    dom.convList.innerHTML = `<p style="padding:16px;font-size:0.8rem;color:var(--clr-text-muted);text-align:center;">
-        No conversations yet
+    dom.convList.innerHTML = `<p style="padding:16px 12px;font-size:0.78rem;color:var(--clr-text-muted);text-align:center;line-height:1.5;">
+        No conversations yet.<br>Click ✏ to start one.
       </p>`;
     return;
   }
@@ -324,22 +486,185 @@ function renderConversationList() {
         <div class="conv-item__title">${escapeHtml(conv.title)}</div>
         <div class="conv-item__meta">${escapeHtml(conv.model || "No model")} · ${dateStr}</div>
       </div>
-      <button class="btn btn--icon conv-item__edit" data-id="${conv.id}" title="Edit conversation">
-        ✏
-      </button>
+      <button class="conv-item__menu-btn" data-id="${conv.id}" title="More options" tabindex="-1">⋮</button>
     `;
 
     item.addEventListener("click", (e) => {
-      if (e.target.closest(".conv-item__edit")) return;
+      if (e.target.closest(".conv-item__menu-btn")) return;
       selectConversation(conv.id);
     });
 
-    item.querySelector(".conv-item__edit").addEventListener("click", (e) => {
-      e.stopPropagation();
-      openEditConversationModal(conv.id);
-    });
+    item
+      .querySelector(".conv-item__menu-btn")
+      .addEventListener("click", (e) => {
+        e.stopPropagation();
+        openConvContextMenu(conv.id, e.currentTarget);
+      });
 
     dom.convList.appendChild(item);
+  }
+}
+
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Context Menu  (3-dot)
+    ═══════════════════════════════════════════════════════════════════════════ */
+function openConvContextMenu(convId, anchorEl) {
+  state.contextMenuConvId = convId;
+
+  // Position the menu near the anchor button
+  const rect = anchorEl.getBoundingClientRect();
+  const menu = dom.convContextMenu;
+
+  // Reset position so we can measure
+  menu.style.top = "0px";
+  menu.style.left = "0px";
+  menu.classList.add("open");
+  menu.setAttribute("aria-hidden", "false");
+
+  const menuRect = menu.getBoundingClientRect();
+  const viewportH = window.innerHeight;
+  const viewportW = window.innerWidth;
+
+  let top = rect.bottom + 4;
+  let left = rect.left;
+
+  // Flip up if menu would overflow below
+  if (top + menuRect.height > viewportH - 8) {
+    top = rect.top - menuRect.height - 4;
+  }
+
+  // Keep within right edge
+  if (left + menuRect.width > viewportW - 8) {
+    left = viewportW - menuRect.width - 8;
+  }
+
+  menu.style.top = `${top}px`;
+  menu.style.left = `${left}px`;
+}
+
+function closeConvContextMenu() {
+  dom.convContextMenu.classList.remove("open");
+  dom.convContextMenu.setAttribute("aria-hidden", "true");
+  state.contextMenuConvId = null;
+}
+
+function renameConversation(convId) {
+  closeConvContextMenu();
+  const conv = state.conversations.find((c) => c.id === convId);
+  if (!conv) return;
+
+  // Find the conv-item element in the list
+  const item = dom.convList.querySelector(`.conv-item[data-id="${convId}"]`);
+  if (!item) return;
+
+  const titleEl = item.querySelector(".conv-item__title");
+  if (!titleEl) return;
+
+  // Swap title div for an input
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "conv-item__rename-input";
+  input.value = conv.title;
+  titleEl.replaceWith(input);
+  input.focus();
+  input.select();
+
+  // Stop clicks inside input from triggering selectConversation
+  input.addEventListener("click", (e) => e.stopPropagation());
+
+  function commit() {
+    const trimmed = input.value.trim();
+    if (!trimmed) {
+      cancel();
+      return;
+    }
+    storage.updateConversation(convId, { title: trimmed });
+    state.conversations = storage.getConversations();
+    // Restore the title element with new text
+    const newTitle = document.createElement("div");
+    newTitle.className = "conv-item__title";
+    newTitle.textContent = trimmed;
+    input.replaceWith(newTitle);
+    // Update topbar if active
+    if (convId === state.activeConversationId) {
+      dom.topbarTitle.textContent = trimmed;
+    }
+  }
+
+  function cancel() {
+    const restored = document.createElement("div");
+    restored.className = "conv-item__title";
+    restored.textContent = conv.title;
+    input.replaceWith(restored);
+  }
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commit();
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      cancel();
+    }
+  });
+
+  input.addEventListener("blur", commit);
+}
+
+async function duplicateConversation(convId) {
+  closeConvContextMenu();
+  const conv = storage.getConversation(convId);
+  if (!conv) return;
+
+  try {
+    // Create new conversation record with "(copy)" appended
+    const newConv = storage.createConversation({
+      title: conv.title + " (copy)",
+      model: conv.model || "",
+      system_prompt: conv.system_prompt || "",
+      endpoint: conv.endpoint || "",
+      api_key: conv.api_key || "",
+      stream: conv.stream || "false",
+    });
+
+    // Copy all messages to the new conversation id
+    const msgs = lsGet(STORAGE_KEYS.messages) || {};
+    const originalMsgs = msgs[convId] || [];
+    const copiedMsgs = originalMsgs.map((m) => ({
+      ...m,
+      id: Date.now() + Math.random(),
+      conversation_id: newConv.id,
+    }));
+    msgs[newConv.id] = copiedMsgs;
+    lsSet(STORAGE_KEYS.messages, msgs);
+
+    await loadConversations();
+    showToast("Conversation duplicated", "success");
+  } catch (err) {
+    showToast("Failed to duplicate: " + err.message, "error");
+  }
+}
+
+async function deleteConversation(convId) {
+  closeConvContextMenu();
+
+  try {
+    storage.deleteConversation(convId);
+
+    // If we deleted the active conversation, clear the view
+    if (convId === state.activeConversationId) {
+      state.activeConversationId = null;
+      renderTopbar(null);
+      disableInput();
+      dom.messages.innerHTML = "";
+      showEmptyState();
+    }
+
+    showToast("Conversation deleted", "success");
+    await loadConversations();
+  } catch (err) {
+    showToast("Failed to delete: " + err.message, "error");
   }
 }
 
@@ -352,7 +677,15 @@ function renderMessages(messages) {
   if (!messages || messages.length === 0) {
     dom.messages.innerHTML = `
       <div class="empty-state" style="flex:1;">
-        <div class="empty-state__icon">💬</div>
+        <div class="empty-state__icon">
+          <svg width="36" height="36" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="4" y="8" width="40" height="30" rx="6" stroke="currentColor" stroke-width="2.5"/>
+            <path d="M15 40l3-6h12l3 6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="16" cy="23" r="2.5" fill="currentColor"/>
+            <circle cx="24" cy="23" r="2.5" fill="currentColor"/>
+            <circle cx="32" cy="23" r="2.5" fill="currentColor"/>
+          </svg>
+        </div>
         <p>No messages yet. Say hello!</p>
       </div>`;
     return;
@@ -387,7 +720,10 @@ function appendMessageBubble(role, content, timestamp = null) {
       ? `<span style="white-space: pre-wrap">${escapeHtml(content)}</span>`
       : formatMessageContent(content);
 
+  const roleLabel = role === "user" ? "You" : "Assistant";
+
   wrapper.innerHTML = `
+    <span class="message__role">${roleLabel}</span>
     <div class="message__bubble">${bubbleContent}</div>
     <span class="message__time">${time}</span>
   `;
@@ -422,16 +758,41 @@ function removeThinkingBubble() {
     ═══════════════════════════════════════════════════════════════════════════ */
 function renderTopbar(conv) {
   if (!conv) {
-    dom.topbarMeta.innerHTML = "";
-    dom.btnDeleteChat.style.display = "none";
+    dom.topbarTitle.textContent = "";
+    // Restore topbar model selector to settings default
+    populateTopbarModelSelect(state.settings.model || "");
+    _syncDropdownLabel(state.settings.model || "");
     return;
   }
 
-  dom.topbarMeta.innerHTML = `
-    <div class="topbar__title">${escapeHtml(conv.title)}</div>
-    <div class="topbar__model">${escapeHtml(conv.model || "No model set")}</div>
-  `;
-  dom.btnDeleteChat.style.display = "flex";
+  dom.topbarTitle.textContent = conv.title || "";
+  // Set the topbar model selector to this conversation's model
+  populateTopbarModelSelect(conv.model || "");
+  _syncDropdownLabel(conv.model || "");
+}
+
+function _syncDropdownLabel(value) {
+  dom.modelSelectorLabel.textContent = value || "Select model";
+  dom.modelSelectorLabel.classList.toggle("placeholder", !value);
+}
+
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Topbar Model Selector — change handler
+    ═══════════════════════════════════════════════════════════════════════════ */
+function onTopbarModelChange() {
+  const newVal = dom.topbarModel.value;
+  if (!newVal) return;
+
+  if (state.activeConversationId) {
+    // Update the active conversation's model immediately
+    storage.updateConversation(state.activeConversationId, { model: newVal });
+    // Refresh state
+    state.conversations = storage.getConversations();
+    renderConversationList();
+  } else {
+    // No active conversation — update settings default
+    state.settings = storage.saveSettings({ model: newVal });
+  }
 }
 
 /*  ═══════════════════════════════════════════════════════════════════════════
@@ -442,10 +803,27 @@ async function selectConversation(id) {
 
   state.activeConversationId = id;
   renderConversationList();
+  closeConvContextMenu();
 
   try {
-    const conv = await api.getConversation(id);
+    const conv = storage.getConversation(id);
+    if (!conv) throw new Error("Conversation not found");
     renderTopbar(conv);
+
+    // Refresh topbar model select with this conversation's endpoint/key
+    // so the list is up-to-date
+    const ep = (conv.endpoint || "").trim();
+    if (ep) {
+      fetchAndPopulateModels(
+        ep,
+        conv.api_key || "",
+        dom.topbarModel,
+        conv.model || "",
+      );
+    } else {
+      populateTopbarModelSelect(conv.model || "");
+    }
+
     renderMessages(conv.messages);
     enableInput();
   } catch (err) {
@@ -454,22 +832,24 @@ async function selectConversation(id) {
 }
 
 /*  ═══════════════════════════════════════════════════════════════════════════
-    Instant New Conversation  (no modal — uses global settings)
+    Create New Conversation
     ═══════════════════════════════════════════════════════════════════════════ */
 async function createNewConversation() {
   const s = state.settings;
 
-  // Guard: need at least an endpoint configured
   if (!s.endpoint) {
     showToast("Set an API endpoint in Settings first", "error");
     openSettingsModal();
     return;
   }
 
+  // Read model from the topbar selector (always visible)
+  const model = dom.topbarModel.value || s.model || "";
+
   try {
-    const newConv = await api.createConversation({
+    const newConv = storage.createConversation({
       title: "New Conversation",
-      model: s.model || "",
+      model,
       system_prompt: s.system_prompt || "",
       endpoint: s.endpoint,
       api_key: s.api_key || "",
@@ -491,7 +871,8 @@ async function openEditConversationModal(id) {
   state.editingConvId = id;
 
   try {
-    const conv = await api.getConversation(id);
+    const conv = storage.getConversation(id);
+    if (!conv) throw new Error("Conversation not found");
 
     dom.convEndpoint.value = conv.endpoint || "";
     dom.convApiKey.value = conv.api_key || "";
@@ -499,7 +880,6 @@ async function openEditConversationModal(id) {
     dom.convSystemPrompt.value = conv.system_prompt || "";
     dom.convStream.checked = conv.stream === "true" || conv.stream === true;
 
-    // Try to fetch live models; fall back to cached list
     const ep = conv.endpoint || "";
     if (ep) {
       fetchAndPopulateModels(
@@ -545,7 +925,7 @@ async function saveConversationModal() {
   try {
     dom.btnConvSave.disabled = true;
 
-    await api.updateConversation(state.editingConvId, {
+    storage.updateConversation(state.editingConvId, {
       title,
       model,
       system_prompt,
@@ -558,41 +938,15 @@ async function saveConversationModal() {
     closeModal(dom.modalConv);
     await loadConversations();
 
+    // If we edited the active conv, refresh topbar
     if (state.editingConvId === state.activeConversationId) {
-      const refreshed = await api.getConversation(state.editingConvId);
+      const refreshed = storage.getConversation(state.editingConvId);
       renderTopbar(refreshed);
     }
   } catch (err) {
     showToast("Error: " + err.message, "error");
   } finally {
     dom.btnConvSave.disabled = false;
-  }
-}
-
-/*  ═══════════════════════════════════════════════════════════════════════════
-    Delete Conversation
-    ═══════════════════════════════════════════════════════════════════════════ */
-async function deleteActiveConversation() {
-  if (!state.activeConversationId) return;
-
-  const conv = state.conversations.find(
-    (c) => c.id === state.activeConversationId,
-  );
-  const name = conv ? `"${conv.title}"` : "this conversation";
-
-  if (!confirm(`Delete ${name}? This cannot be undone.`)) return;
-
-  try {
-    await api.deleteConversation(state.activeConversationId);
-    state.activeConversationId = null;
-    renderTopbar(null);
-    disableInput();
-    dom.messages.innerHTML = "";
-    showEmptyState();
-    showToast("Conversation deleted", "success");
-    await loadConversations();
-  } catch (err) {
-    showToast("Failed to delete: " + err.message, "error");
   }
 }
 
@@ -624,7 +978,7 @@ async function sendMessage() {
     } else {
       await sendMessageBlocking(content);
     }
-    await loadConversations();
+    loadConversations();
   } catch (err) {
     removeThinkingBubble();
     const bubbles = dom.messages.querySelectorAll(".message--user");
@@ -638,24 +992,92 @@ async function sendMessage() {
 }
 
 async function sendMessageBlocking(content) {
-  const result = await api.sendMessage(state.activeConversationId, content);
+  const conv = storage.getConversation(state.activeConversationId);
+  if (!conv) throw new Error("Conversation not found");
+
+  storage.addMessage(state.activeConversationId, { role: "user", content });
+
+  const history = storage.getMessages(state.activeConversationId);
+  const llmMessages = [];
+  if (conv.system_prompt && conv.system_prompt.trim()) {
+    llmMessages.push({ role: "system", content: conv.system_prompt.trim() });
+  }
+  for (const msg of history) {
+    llmMessages.push({ role: msg.role, content: msg.content });
+  }
+
+  const baseUrl = conv.endpoint.replace(/\/+$/, "");
+  const url = `${baseUrl}/chat/completions`;
+  const headers = { "Content-Type": "application/json" };
+  if (conv.api_key && conv.api_key.trim()) {
+    headers["Authorization"] = `Bearer ${conv.api_key.trim()}`;
+  }
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model: conv.model,
+      messages: llmMessages,
+      stream: false,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`LLM API error ${res.status}: ${text}`);
+  }
+
+  const data = await res.json();
+  const reply = data?.choices?.[0]?.message?.content;
+  if (!reply) throw new Error("Unexpected response format from LLM API");
+
+  const assistantMessage = storage.addMessage(state.activeConversationId, {
+    role: "assistant",
+    content: reply,
+  });
+
   removeThinkingBubble();
   appendMessageBubble(
     "assistant",
-    result.assistant_message.content,
-    result.assistant_message.created_at,
+    assistantMessage.content,
+    assistantMessage.created_at,
   );
   scrollToBottom();
 }
 
 async function sendMessageStreaming(content) {
-  return new Promise((resolve, reject) => {
-    const url = `/api/conversations/${state.activeConversationId}/messages?stream=true`;
+  const conv = storage.getConversation(state.activeConversationId);
+  if (!conv) throw new Error("Conversation not found");
 
+  storage.addMessage(state.activeConversationId, { role: "user", content });
+
+  const history = storage.getMessages(state.activeConversationId);
+  const llmMessages = [];
+  if (conv.system_prompt && conv.system_prompt.trim()) {
+    llmMessages.push({ role: "system", content: conv.system_prompt.trim() });
+  }
+  for (const msg of history) {
+    llmMessages.push({ role: msg.role, content: msg.content });
+  }
+
+  const headers = { "Content-Type": "application/json" };
+  if (conv.api_key && conv.api_key.trim()) {
+    headers["Authorization"] = `Bearer ${conv.api_key.trim()}`;
+  }
+
+  const baseUrl = conv.endpoint.replace(/\/+$/, "");
+  const url = `${baseUrl}/chat/completions`;
+
+  return new Promise((resolve, reject) => {
     fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content }),
+      headers,
+      body: JSON.stringify({
+        model: conv.model,
+        messages: llmMessages,
+        stream: true,
+      }),
     })
       .then(async (res) => {
         if (!res.ok) {
@@ -682,25 +1104,32 @@ async function sendMessageStreaming(content) {
 
           for (const line of lines) {
             const trimmed = line.trim();
-            if (trimmed.startsWith("event:")) continue;
+            if (!trimmed.startsWith("data:")) continue;
 
-            if (trimmed.startsWith("data:")) {
-              const raw = trimmed.slice(5).trim();
-              let parsed;
-              try {
-                parsed = JSON.parse(raw);
-              } catch {
-                continue;
-              }
+            const raw = trimmed.slice(5).trim();
+            if (raw === "[DONE]") break;
 
-              if (parsed.token) {
-                fullContent += parsed.token;
-                bubble.innerHTML = formatMessageContent(fullContent);
-                scrollToBottom();
-              }
-              if (parsed.error) throw new Error(parsed.error);
+            let parsed;
+            try {
+              parsed = JSON.parse(raw);
+            } catch {
+              continue;
+            }
+
+            const token = parsed?.choices?.[0]?.delta?.content;
+            if (token) {
+              fullContent += token;
+              bubble.innerHTML = formatMessageContent(fullContent);
+              scrollToBottom();
             }
           }
+        }
+
+        if (fullContent.trim()) {
+          storage.addMessage(state.activeConversationId, {
+            role: "assistant",
+            content: fullContent,
+          });
         }
 
         scrollToBottom();
@@ -715,7 +1144,7 @@ async function sendMessageStreaming(content) {
     ═══════════════════════════════════════════════════════════════════════════ */
 async function loadConversations() {
   try {
-    state.conversations = await api.getConversations();
+    state.conversations = storage.getConversations();
     renderConversationList();
   } catch (err) {
     showToast("Failed to load conversations: " + err.message, "error");
@@ -724,14 +1153,14 @@ async function loadConversations() {
 
 async function loadSettings() {
   try {
-    state.settings = await api.getSettings();
+    state.settings = storage.getSettings();
   } catch {
     state.settings = {};
   }
 }
 
 /*  ═══════════════════════════════════════════════════════════════════════════
-    Settings Modal
+    Settings Modal  (no model selector — model is in topbar)
     ═══════════════════════════════════════════════════════════════════════════ */
 function openSettingsModal() {
   dom.settingsEndpoint.value = state.settings.endpoint || "";
@@ -739,37 +1168,21 @@ function openSettingsModal() {
   dom.settingsSystemPrompt.value = state.settings.system_prompt || "";
   dom.settingsStream.checked = state.settings.stream === "true";
 
-  // If there is a saved endpoint, try to fetch live models; otherwise fall
-  // back to whatever is already in state.models.
-  const ep = state.settings.endpoint || "";
-  if (ep) {
-    fetchAndPopulateModels(
-      ep,
-      state.settings.api_key || "",
-      dom.settingsModel,
-      state.settings.model || "",
-    );
-  } else {
-    populateModelSelect(dom.settingsModel, state.settings.model || "");
-  }
-
-  // Hide the add-model row if it was left open
-  dom.addModelRow.style.display = "none";
-  dom.newModelName.value = "";
-
   openModal(dom.modalSettings);
 }
 
 async function saveSettingsModal() {
   const endpoint = dom.settingsEndpoint.value.trim();
   const api_key = dom.settingsApiKey.value.trim();
-  const model = dom.settingsModel.value.trim();
   const system_prompt = dom.settingsSystemPrompt.value.trim();
   const stream = String(dom.settingsStream.checked);
 
+  // Preserve the existing model value when saving settings
+  const model = state.settings.model || dom.topbarModel.value || "";
+
   try {
     document.getElementById("btn-settings-save").disabled = true;
-    state.settings = await api.saveSettings({
+    state.settings = storage.saveSettings({
       endpoint,
       api_key,
       model,
@@ -778,45 +1191,16 @@ async function saveSettingsModal() {
     });
     showToast("Settings saved", "success");
     closeModal(dom.modalSettings);
+
+    // If topbar has no active conversation, refresh its model list from new endpoint
+    if (!state.activeConversationId && endpoint) {
+      fetchAndPopulateModels(endpoint, api_key, dom.topbarModel, model);
+    }
   } catch (err) {
     showToast("Failed to save settings: " + err.message, "error");
   } finally {
     document.getElementById("btn-settings-save").disabled = false;
   }
-}
-
-/*  ═══════════════════════════════════════════════════════════════════════════
-    Custom Model Management (inside Settings modal)
-    ═══════════════════════════════════════════════════════════════════════════ */
-function showAddModelRow() {
-  dom.addModelRow.style.display = "flex";
-  dom.newModelName.value = "";
-  dom.newModelName.focus();
-}
-
-function hideAddModelRow() {
-  dom.addModelRow.style.display = "none";
-  dom.newModelName.value = "";
-}
-
-function confirmAddModel() {
-  const name = dom.newModelName.value.trim();
-  if (!name) {
-    showToast("Model name cannot be empty", "error");
-    dom.newModelName.focus();
-    return;
-  }
-
-  const added = addModel(name);
-  if (!added) {
-    showToast(`"${name}" is already in the list`, "error");
-    return;
-  }
-
-  // Refresh both dropdowns and select the new model in settings
-  populateModelSelect(dom.settingsModel, name);
-  hideAddModelRow();
-  showToast(`Model "${name}" added`, "success");
 }
 
 /*  ═══════════════════════════════════════════════════════════════════════════
@@ -839,8 +1223,17 @@ function resetTextareaHeight() {
 function showEmptyState() {
   dom.messages.innerHTML = `
     <div class="empty-state" id="empty-state">
-      <h2>Welcome to LLM WebUI</h2>
-      <p>Start a new conversation or select one from the sidebar.</p>
+      <div class="empty-state__icon">
+        <svg width="44" height="44" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="4" y="8" width="40" height="30" rx="6" stroke="currentColor" stroke-width="2.5"/>
+          <path d="M15 40l3-6h12l3 6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="16" cy="23" r="2.5" fill="currentColor"/>
+          <circle cx="24" cy="23" r="2.5" fill="currentColor"/>
+          <circle cx="32" cy="23" r="2.5" fill="currentColor"/>
+        </svg>
+      </div>
+      <h2>Start a conversation</h2>
+      <p>Select a model above, then start chatting — or open an existing conversation from the sidebar.</p>
       <button class="btn btn--primary" id="btn-new-chat-2">New Conversation</button>
     </div>`;
 
@@ -867,13 +1260,11 @@ function escapeHtml(str) {
 
 function formatMessageContent(content) {
   if (typeof marked === "undefined") {
-    // Fallback: plain escaping with newlines if marked hasn't loaded yet
     return escapeHtml(content).replace(/\n/g, "<br>");
   }
-
   return marked.parse(content, {
-    breaks: true, // single newline → <br> inside paragraphs
-    gfm: true, // GitHub-Flavoured Markdown (tables, strikethrough, etc.)
+    breaks: true,
+    gfm: true,
   });
 }
 
@@ -891,21 +1282,62 @@ function bindEvents() {
   // Theme toggle
   dom.btnThemeToggle.addEventListener("click", toggleTheme);
 
-  // New conversation (instant — no modal)
+  // New conversation
   document
     .getElementById("btn-new-chat")
     .addEventListener("click", createNewConversation);
-  // The btn-new-chat-2 inside empty-state is bound dynamically in showEmptyState()
-  // but also bind the initial one present in the HTML
+
   const initialEmptyBtn = document.getElementById("btn-new-chat-2");
   if (initialEmptyBtn) {
     initialEmptyBtn.addEventListener("click", createNewConversation);
   }
 
-  // Delete conversation
-  dom.btnDeleteChat.addEventListener("click", deleteActiveConversation);
+  // ── Custom model selector dropdown ───────────────────────
+  dom.modelSelectorTrigger.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (dom.modelSelectorDropdown.classList.contains("open")) {
+      closeCustomDropdown();
+    } else {
+      openCustomDropdown();
+    }
+  });
 
-  // Edit Conversation modal
+  dom.modelSelectorSearch.addEventListener("input", () => {
+    renderCustomDropdown(dom.topbarModel.value, dom.modelSelectorSearch.value);
+  });
+
+  dom.modelSelectorSearch.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      closeCustomDropdown();
+      dom.modelSelectorTrigger.focus();
+    }
+  });
+
+  // ── Topbar endpoint/key: when settings endpoint changes, refresh topbar models
+  dom.settingsEndpoint.addEventListener("change", async () => {
+    const ep = dom.settingsEndpoint.value.trim();
+    if (!ep || state.activeConversationId) return;
+    const currentModel = dom.topbarModel.value;
+    await fetchAndPopulateModels(
+      ep,
+      dom.settingsApiKey.value.trim(),
+      dom.topbarModel,
+      currentModel,
+    );
+  });
+  dom.settingsApiKey.addEventListener("change", async () => {
+    const ep = dom.settingsEndpoint.value.trim();
+    if (!ep || state.activeConversationId) return;
+    const currentModel = dom.topbarModel.value;
+    await fetchAndPopulateModels(
+      ep,
+      dom.settingsApiKey.value.trim(),
+      dom.topbarModel,
+      currentModel,
+    );
+  });
+
+  // ── Edit Conversation modal ────────────────────────────────
   dom.btnConvSave.addEventListener("click", saveConversationModal);
   document
     .getElementById("btn-conv-cancel")
@@ -914,39 +1346,7 @@ function bindEvents() {
     .getElementById("btn-close-conv-modal")
     .addEventListener("click", () => closeModal(dom.modalConv));
 
-  // Settings modal
-  document
-    .getElementById("btn-open-settings")
-    .addEventListener("click", openSettingsModal);
-  document
-    .getElementById("btn-settings-save")
-    .addEventListener("click", saveSettingsModal);
-  document
-    .getElementById("btn-settings-cancel")
-    .addEventListener("click", () => closeModal(dom.modalSettings));
-  document
-    .getElementById("btn-close-settings-modal")
-    .addEventListener("click", () => closeModal(dom.modalSettings));
-
-  // Re-fetch models when the endpoint or API key changes in the Settings modal
-  async function onSettingsEndpointOrKeyChange() {
-    const ep = dom.settingsEndpoint.value.trim();
-    if (!ep) return;
-    const currentModel = dom.settingsModel.value;
-    await fetchAndPopulateModels(
-      ep,
-      dom.settingsApiKey.value.trim(),
-      dom.settingsModel,
-      currentModel,
-    );
-  }
-  dom.settingsEndpoint.addEventListener(
-    "change",
-    onSettingsEndpointOrKeyChange,
-  );
-  dom.settingsApiKey.addEventListener("change", onSettingsEndpointOrKeyChange);
-
-  // Re-fetch models when the endpoint or API key changes in the Conv modal
+  // Re-fetch models when conv modal endpoint/key changes
   async function onConvEndpointOrKeyChange() {
     const ep = dom.convEndpoint.value.trim();
     if (!ep) return;
@@ -961,16 +1361,48 @@ function bindEvents() {
   dom.convEndpoint.addEventListener("change", onConvEndpointOrKeyChange);
   dom.convApiKey.addEventListener("change", onConvEndpointOrKeyChange);
 
-  // Add custom model flow
-  dom.btnAddModel.addEventListener("click", showAddModelRow);
-  dom.btnConfirmAddModel.addEventListener("click", confirmAddModel);
-  dom.btnCancelAddModel.addEventListener("click", hideAddModelRow);
-  dom.newModelName.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      confirmAddModel();
+  // ── Settings modal ─────────────────────────────────────────
+  document
+    .getElementById("btn-open-settings")
+    .addEventListener("click", openSettingsModal);
+  document
+    .getElementById("btn-settings-save")
+    .addEventListener("click", saveSettingsModal);
+  document
+    .getElementById("btn-settings-cancel")
+    .addEventListener("click", () => closeModal(dom.modalSettings));
+  document
+    .getElementById("btn-close-settings-modal")
+    .addEventListener("click", () => closeModal(dom.modalSettings));
+
+  // ── Context menu actions ───────────────────────────────────
+  dom.ctxRename.addEventListener("click", () => {
+    if (state.contextMenuConvId) renameConversation(state.contextMenuConvId);
+  });
+  dom.ctxDuplicate.addEventListener("click", () => {
+    if (state.contextMenuConvId) duplicateConversation(state.contextMenuConvId);
+  });
+  dom.ctxDelete.addEventListener("click", () => {
+    if (state.contextMenuConvId) deleteConversation(state.contextMenuConvId);
+  });
+
+  // Close context menu when clicking outside
+  document.addEventListener("click", (e) => {
+    if (
+      dom.convContextMenu.classList.contains("open") &&
+      !dom.convContextMenu.contains(e.target) &&
+      !e.target.closest(".conv-item__menu-btn")
+    ) {
+      closeConvContextMenu();
     }
-    if (e.key === "Escape") hideAddModelRow();
+    // Close custom model dropdown when clicking outside
+    if (
+      dom.modelSelectorDropdown.classList.contains("open") &&
+      !dom.modelSelectorDropdown.contains(e.target) &&
+      !dom.modelSelectorTrigger.contains(e.target)
+    ) {
+      closeCustomDropdown();
+    }
   });
 
   // Close modals on overlay click
@@ -986,10 +1418,12 @@ function bindEvents() {
     if (e.key === "Escape") {
       closeModal(dom.modalConv);
       closeModal(dom.modalSettings);
+      closeConvContextMenu();
+      closeCustomDropdown();
     }
   });
 
-  // Send message
+  // ── Send message ───────────────────────────────────────────
   dom.btnSend.addEventListener("click", sendMessage);
   dom.messageInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -1002,7 +1436,7 @@ function bindEvents() {
   dom.messageInput.addEventListener("input", () => {
     dom.messageInput.style.height = "auto";
     dom.messageInput.style.height =
-      Math.min(dom.messageInput.scrollHeight, 160) + "px";
+      Math.min(dom.messageInput.scrollHeight, 180) + "px";
   });
 }
 
@@ -1015,5 +1449,20 @@ async function init() {
   bindEvents();
   await loadSettings();
   await loadConversations();
+
+  // Populate the topbar model selector on load
+  // If no active conversation, use settings default and try to fetch from endpoint
+  const ep = state.settings.endpoint || "";
+  if (ep) {
+    fetchAndPopulateModels(
+      ep,
+      state.settings.api_key || "",
+      dom.topbarModel,
+      state.settings.model || "",
+    );
+  } else {
+    populateTopbarModelSelect(state.settings.model || "");
+  }
 }
+
 init();

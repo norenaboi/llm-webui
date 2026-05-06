@@ -1,18 +1,18 @@
 # LLM WebUI
 
-A simple web-based chat interface for interacting with Large Language Models (LLMs) via a custom OpenAI-compatible API endpoint.
+A lightweight, self-hosted browser chat interface for any OpenAI-compatible API endpoint.
 
-Built with **Node.js**, **Express**, and **SQLite**.
+Built with **Node.js**, **Express**, and **Vanilla JS**.
 
 ---
 
 ## Features
 
--  Chat interface in the browser
--  Custom API endpoint configuration (OpenAI-compatible)
--  Model selection
--  System prompt configuration
--  Persistent chat history stored in a database
+- Chat interface in the browser
+- Custom API endpoint, model, and API key - configurable per conversation
+- System prompt configuration per conversation
+- Persistent chat history stored in `localStorage`
+- Dark / light theme toggle
 
 ---
 
@@ -21,9 +21,9 @@ Built with **Node.js**, **Express**, and **SQLite**.
 | Layer      | Technology              |
 |------------|-------------------------|
 | Runtime    | Node.js                 |
-| Framework  | Express                 |
-| Frontend   | HTML/CSS/JS             |
-| Database   | SQLite                  |
+| Framework  | Express (static server) |
+| Frontend   | HTML / CSS / Vanilla JS |
+| Storage    | Browser `localStorage`  |
 
 ---
 
@@ -40,21 +40,9 @@ Built with **Node.js**, **Express**, and **SQLite**.
 npm install
 ```
 
-### 3. Configure Environment
+### 3. Run the App
 
 ```bash
-cp .env.example .env
-```
-
-Edit `.env` with your preferred settings.
-
-### 4. Run the App
-
-```bash
-# Development (with auto-reload)
-npm run dev
-
-# Production
 npm start
 ```
 
@@ -64,26 +52,14 @@ Then open your browser at **http://localhost:3000**
 
 ## Configuration
 
-All configuration is done through the UI or the `.env` file.
-
-| Setting         | Description                                      | Default               |
-|-----------------|--------------------------------------------------|-----------------------|
-| `PORT`          | Port the server listens on                       | `3000`                |
-| `DB_PATH`       | Path to the SQLite database file                 | `./data/chat.db`      |
-
----
-
-## API Endpoints
-
-| Method | Path                        | Description                        |
-|--------|-----------------------------|------------------------------------|
-| `GET`  | `/api/conversations`        | List all conversations             |
-| `POST` | `/api/conversations`        | Create a new conversation          |
-| `GET`  | `/api/conversations/:id`    | Get messages for a conversation    |
-| `POST` | `/api/conversations/:id/messages` | Send a message and get a reply |
-| `DELETE` | `/api/conversations/:id`  | Delete a conversation              |
-| `GET`  | `/api/settings`             | Get current settings               |
-| `POST` | `/api/settings`             | Save settings                      |
+| Setting         | Description                                                  |
+|-----------------|--------------------------------------------------------------|
+| `PORT`          | Port the server listens on (default: `3000` and configurable with `.env`)                 |
+| Endpoint        | Your OpenAI-compatible API base URL (set in the UI)         |
+| API Key         | Bearer token for your API (set in the UI, stored locally)   |
+| Model           | Fetched automatically from `/v1/models` endpoint       |
+| System Prompt   | Optional system message prepended to every conversation     |
+| Streaming       | Toggle server-sent event streaming on or off per conversation|
 
 ---
 
