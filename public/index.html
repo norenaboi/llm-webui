@@ -4,6 +4,7 @@
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>LLM WebUI</title>
+        <link rel="icon" type="image/x-icon" href="favicon.ico" />
         <link rel="stylesheet" href="style.css" />
         <script>
             // Inline theme init — runs before first paint to prevent flash
@@ -15,7 +16,6 @@
     </head>
     <body>
         <div class="layout">
-            <!-- ═══ SIDEBAR ═══════════════════════════════════════════════ -->
             <aside class="sidebar" id="sidebar">
                 <div class="sidebar__header">
                     <button
@@ -31,7 +31,7 @@
                             xmlns="http://www.w3.org/2000/svg"
                         >
                             <path
-                                d="M2 4h14M2 9h14M2 14h14"
+                                d="M3 6h18M3 12h18M3 18h18"
                                 stroke="currentColor"
                                 stroke-width="1.6"
                                 stroke-linecap="round"
@@ -107,12 +107,31 @@
                 </div>
             </aside>
 
-            <!-- ═══ MAIN ═══════════════════════════════════════════════════ -->
             <main class="main" id="main">
-                <!-- Topbar -->
                 <header class="topbar">
+                    <button
+                        class="btn btn--icon btn--topbar-menu"
+                        id="btn-topbar-menu"
+                        title="Open sidebar"
+                        aria-label="Open sidebar"
+                    >
+                        <svg
+                            width="20"
+                            height="20"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            xmlns="http://www.w3.org/2000/svg"
+                        >
+                            <path
+                                d="M3 6h18M3 12h18M3 18h18"
+                                stroke="currentColor"
+                                stroke-width="1.8"
+                                stroke-linecap="round"
+                            />
+                        </svg>
+                    </button>
+
                     <div class="topbar__left">
-                        <!-- Model selector custom dropdown -->
                         <div class="model-selector" id="model-selector-wrap">
                             <button
                                 class="model-selector__trigger"
@@ -121,51 +140,12 @@
                                 aria-haspopup="listbox"
                                 aria-expanded="false"
                             >
-                                <svg
+                                <img
                                     class="model-selector__icon"
-                                    width="13"
-                                    height="13"
-                                    viewBox="0 0 16 16"
-                                    fill="none"
-                                    xmlns="http://www.w3.org/2000/svg"
-                                >
-                                    <rect
-                                        x="1"
-                                        y="1"
-                                        width="6"
-                                        height="6"
-                                        rx="1.5"
-                                        stroke="currentColor"
-                                        stroke-width="1.4"
-                                    />
-                                    <rect
-                                        x="9"
-                                        y="1"
-                                        width="6"
-                                        height="6"
-                                        rx="1.5"
-                                        stroke="currentColor"
-                                        stroke-width="1.4"
-                                    />
-                                    <rect
-                                        x="1"
-                                        y="9"
-                                        width="6"
-                                        height="6"
-                                        rx="1.5"
-                                        stroke="currentColor"
-                                        stroke-width="1.4"
-                                    />
-                                    <rect
-                                        x="9"
-                                        y="9"
-                                        width="6"
-                                        height="6"
-                                        rx="1.5"
-                                        stroke="currentColor"
-                                        stroke-width="1.4"
-                                    />
-                                </svg>
+                                    id="model-selector-icon"
+                                    src=""
+                                    alt=""
+                                />
                                 <span
                                     class="model-selector__label"
                                     id="model-selector-label"
@@ -226,11 +206,14 @@
                                     />
                                 </div>
                                 <div
+                                    class="model-selector__filters"
+                                    id="model-selector-filters"
+                                ></div>
+                                <div
                                     class="model-selector__list"
                                     id="model-selector-list"
                                 ></div>
                             </div>
-                            <!-- Hidden input to hold current value, used by JS -->
                             <input type="hidden" id="topbar-model" />
                         </div>
                     </div>
@@ -238,7 +221,6 @@
                     <div class="topbar__center" id="topbar-title"></div>
                 </header>
 
-                <!-- Messages -->
                 <div class="messages" id="messages">
                     <div class="empty-state" id="empty-state">
                         <div class="empty-state__icon">
@@ -296,7 +278,6 @@
                     </div>
                 </div>
 
-                <!-- Input bar -->
                 <div class="input-bar" id="input-bar">
                     <input
                         type="file"
@@ -365,7 +346,12 @@
             </main>
         </div>
 
-        <!-- ═══ CONTEXT MENU (3-dot) ════════════════════════════════════════ -->
+        <div
+            class="sidebar-backdrop"
+            id="sidebar-backdrop"
+            aria-hidden="true"
+        ></div>
+
         <div
             class="conv-context-menu"
             id="conv-context-menu"
@@ -438,7 +424,6 @@
             </button>
         </div>
 
-        <!-- ═══ EDIT CONVERSATION MODAL ══════════════════════════════════════ -->
         <div class="modal-overlay" id="modal-conversation" aria-hidden="true">
             <div
                 class="modal"
@@ -502,6 +487,41 @@
                         placeholder="You are a helpful assistant…"
                     ></textarea>
 
+                    <div class="form-row-2col">
+                        <div>
+                            <label class="form-label" for="conv-temperature"
+                                >Temperature</label
+                            >
+                            <input
+                                type="number"
+                                id="conv-temperature"
+                                class="form-input"
+                                min="0"
+                                max="2"
+                                step="0.01"
+                                placeholder="Model default"
+                            />
+                        </div>
+                        <div>
+                            <label class="form-label" for="conv-top-p"
+                                >Top P</label
+                            >
+                            <input
+                                type="number"
+                                id="conv-top-p"
+                                class="form-input"
+                                min="0"
+                                max="1"
+                                step="0.01"
+                                placeholder="Model default"
+                            />
+                        </div>
+                    </div>
+                    <span class="form-hint"
+                        >Leave Temperature / Top P blank to use the model's
+                        default.</span
+                    >
+
                     <label class="form-label" for="conv-stream"
                         >Streaming</label
                     >
@@ -527,7 +547,6 @@
             </div>
         </div>
 
-        <!-- ═══ SETTINGS MODAL ═══════════════════════════════════════════════ -->
         <div class="modal-overlay" id="modal-settings" aria-hidden="true">
             <div
                 class="modal"
@@ -582,6 +601,41 @@
                         placeholder="You are a helpful assistant…"
                     ></textarea>
 
+                    <div class="form-row-2col">
+                        <div>
+                            <label class="form-label" for="settings-temperature"
+                                >Temperature</label
+                            >
+                            <input
+                                type="number"
+                                id="settings-temperature"
+                                class="form-input"
+                                min="0"
+                                max="2"
+                                step="0.01"
+                                placeholder="Model default"
+                            />
+                        </div>
+                        <div>
+                            <label class="form-label" for="settings-top-p"
+                                >Top P</label
+                            >
+                            <input
+                                type="number"
+                                id="settings-top-p"
+                                class="form-input"
+                                min="0"
+                                max="1"
+                                step="0.01"
+                                placeholder="Model default"
+                            />
+                        </div>
+                    </div>
+                    <span class="form-hint"
+                        >Leave Temperature / Top P blank to use the model's
+                        default. Avoid setting both at once.</span
+                    >
+
                     <label class="form-label" for="settings-stream"
                         >Default Streaming</label
                     >
@@ -607,7 +661,6 @@
             </div>
         </div>
 
-        <!-- ═══ TOAST ════════════════════════════════════════════════════════ -->
         <div class="toast" id="toast" aria-live="polite"></div>
 
         <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>

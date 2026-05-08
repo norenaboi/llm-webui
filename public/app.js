@@ -29,8 +29,10 @@ const dom = {
   modelSelectorTrigger: document.getElementById("model-selector-trigger"),
   modelSelectorDropdown: document.getElementById("model-selector-dropdown"),
   modelSelectorLabel: document.getElementById("model-selector-label"),
+  modelSelectorIcon: document.getElementById("model-selector-icon"),
   modelSelectorSearch: document.getElementById("model-selector-search"),
   modelSelectorList: document.getElementById("model-selector-list"),
+  modelSelectorFilters: document.getElementById("model-selector-filters"),
   // Input bar
   messageInput: document.getElementById("message-input"),
   btnSend: document.getElementById("btn-send"),
@@ -45,14 +47,18 @@ const dom = {
   convModel: document.getElementById("conv-model"),
   convTitle: document.getElementById("conv-title"),
   convSystemPrompt: document.getElementById("conv-system-prompt"),
+  convTemperature: document.getElementById("conv-temperature"),
+  convTopP: document.getElementById("conv-top-p"),
   convStream: document.getElementById("conv-stream"),
   btnConvSave: document.getElementById("btn-conv-save"),
   btnConvCancel: document.getElementById("btn-conv-cancel"),
-  // Settings modal (no model select here anymore)
+  // Settings modal (no model selector here anymore)
   modalSettings: document.getElementById("modal-settings"),
   settingsEndpoint: document.getElementById("settings-endpoint"),
   settingsApiKey: document.getElementById("settings-api-key"),
   settingsSystemPrompt: document.getElementById("settings-system-prompt"),
+  settingsTemperature: document.getElementById("settings-temperature"),
+  settingsTopP: document.getElementById("settings-top-p"),
   settingsStream: document.getElementById("settings-stream"),
   // Context menu (3-dot)
   convContextMenu: document.getElementById("conv-context-menu"),
@@ -61,6 +67,8 @@ const dom = {
   ctxDelete: document.getElementById("ctx-delete"),
   // Theme toggle
   btnThemeToggle: document.getElementById("btn-theme-toggle"),
+  // Sidebar backdrop
+  sidebarBackdrop: document.getElementById("sidebar-backdrop"),
   // Toast
   toast: document.getElementById("toast"),
 };
@@ -112,6 +120,8 @@ const storage = {
     endpoint = "",
     api_key = "",
     stream = "false",
+    temperature = "",
+    top_p = "",
   }) {
     const convs = lsGet(STORAGE_KEYS.conversations) || [];
     const now = new Date().toISOString();
@@ -124,6 +134,8 @@ const storage = {
       endpoint,
       api_key,
       stream,
+      temperature,
+      top_p,
       created_at: now,
       updated_at: now,
     };
@@ -195,6 +207,15 @@ const storage = {
     const msgs = lsGet(STORAGE_KEYS.messages) || {};
     if (!msgs[conversationId]) return;
     msgs[conversationId] = msgs[conversationId].slice(0, fromIndex);
+    lsSet(STORAGE_KEYS.messages, msgs);
+  },
+
+  deleteMessage(conversationId, messageId) {
+    const msgs = lsGet(STORAGE_KEYS.messages) || {};
+    if (!msgs[conversationId]) return;
+    msgs[conversationId] = msgs[conversationId].filter(
+      (m) => String(m.id) !== String(messageId),
+    );
     lsSet(STORAGE_KEYS.messages, msgs);
   },
 
@@ -275,7 +296,7 @@ function closeModal(modalEl) {
     ═══════════════════════════════════════════════════════════════════════════ */
 const MODELS_KEY = "llm_webui_models";
 
-const DEFAULT_MODELS = ["gpt-4o", "gpt-4o-mini", "claude-opus-4-5"];
+const DEFAULT_MODELS = [];
 
 function loadModels() {
   try {
@@ -424,29 +445,173 @@ function populateTopbarModelSelect(selectedValue) {
 }
 
 /*  ═══════════════════════════════════════════════════════════════════════════
+    Provider Config — icons + detection
+    ═══════════════════════════════════════════════════════════════════════════ */
+const PROVIDER_CONFIG = [
+  {
+    key: "deepseek",
+    name: "DeepSeek",
+    iconUrl: "https://www.google.com/s2/favicons?domain=deepseek.com&sz=32",
+    match: (id) => id.includes("deepseek"),
+  },
+  {
+    key: "kimi",
+    name: "Kimi",
+    iconUrl: "https://www.google.com/s2/favicons?domain=kimi.ai&sz=32",
+    match: (id) => id.includes("kimi") || id.includes("moonshot"),
+  },
+  {
+    key: "glm",
+    name: "GLM",
+    iconUrl: "https://www.google.com/s2/favicons?domain=zhipuai.cn&sz=32",
+    match: (id) => id.includes("glm"),
+  },
+  {
+    key: "gpt",
+    name: "GPT",
+    iconUrl: "https://www.google.com/s2/favicons?domain=openai.com&sz=32",
+    match: (id) => id.includes("gpt"),
+  },
+  {
+    key: "gemini",
+    name: "Gemini",
+    iconUrl:
+      "https://www.google.com/s2/favicons?domain=gemini.google.com&sz=32",
+    match: (id) => id.includes("gemini"),
+  },
+  {
+    key: "qwen",
+    name: "Qwen",
+    iconUrl: "https://www.google.com/s2/favicons?domain=chat.qwen.ai&sz=32",
+    match: (id) => id.includes("qwen"),
+  },
+  {
+    key: "claude",
+    name: "Claude",
+    iconUrl: "https://www.google.com/s2/favicons?domain=anthropic.com&sz=32",
+    match: (id) =>
+      id.includes("claude") || id.includes("sonnet") || id.includes("opus"),
+  },
+];
+
+function detectProvider(modelId) {
+  const id = modelId.toLowerCase();
+  for (const p of PROVIDER_CONFIG) {
+    if (p.match(id)) return p;
+  }
+  return null;
+}
+
+// Tracks which filter pill is active while the dropdown is open
+let dropdownActiveFilter = null;
+
+/*  ═══════════════════════════════════════════════════════════════════════════
     Custom Model Dropdown
     ═══════════════════════════════════════════════════════════════════════════ */
 function renderCustomDropdown(selectedValue, filter = "") {
   const list = dom.modelSelectorList;
-  list.innerHTML = "";
+  const filtersEl = dom.modelSelectorFilters;
+  if (!list) return;
 
-  const models = filter
+  // Apply text search
+  const searchedModels = filter
     ? state.models.filter((m) => m.toLowerCase().includes(filter.toLowerCase()))
     : state.models;
 
+  // ── Build filter strip ────────────────────────────────────────────────────
+  // Collect which providers are actually present in the searched list
+  const presentKeys = new Set();
+  let hasOthers = false;
+  for (const m of searchedModels) {
+    const p = detectProvider(m);
+    if (p) presentKeys.add(p.key);
+    else hasOthers = true;
+  }
+
+  if (filtersEl) filtersEl.innerHTML = "";
+  const showStrip = filtersEl && (presentKeys.size > 0 || hasOthers);
+
+  if (showStrip) {
+    for (const p of PROVIDER_CONFIG) {
+      if (!presentKeys.has(p.key)) continue;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.title = p.name;
+      btn.className =
+        "model-selector__filter-btn" +
+        (dropdownActiveFilter === p.key ? " active" : "");
+      btn.innerHTML = `<img class="model-selector__filter-icon" src="${p.iconUrl}" alt="${p.name}" />`;
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        dropdownActiveFilter = dropdownActiveFilter === p.key ? null : p.key;
+        renderCustomDropdown(selectedValue, filter);
+      });
+      filtersEl.appendChild(btn);
+    }
+
+    if (hasOthers) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.title = "Other models";
+      btn.className =
+        "model-selector__filter-btn" +
+        (dropdownActiveFilter === "other" ? " active" : "");
+      btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="2.5" cy="8" r="1.5" fill="currentColor"/>
+        <circle cx="8" cy="8" r="1.5" fill="currentColor"/>
+        <circle cx="13.5" cy="8" r="1.5" fill="currentColor"/>
+      </svg>`;
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        dropdownActiveFilter =
+          dropdownActiveFilter === "other" ? null : "other";
+        renderCustomDropdown(selectedValue, filter);
+      });
+      filtersEl.appendChild(btn);
+    }
+  }
+
+  // ── Apply active provider filter ──────────────────────────────────────────
+  const models =
+    dropdownActiveFilter === null
+      ? searchedModels
+      : dropdownActiveFilter === "other"
+        ? searchedModels.filter((m) => !detectProvider(m))
+        : searchedModels.filter(
+            (m) => detectProvider(m)?.key === dropdownActiveFilter,
+          );
+
+  list.innerHTML = "";
+
   if (models.length === 0) {
-    list.innerHTML = `<div class="model-selector__empty">No models found</div>`;
+    list.innerHTML = `<div class="model-selector__empty">No models match this filter.</div>`;
     return;
   }
 
+  // ── Render model rows ─────────────────────────────────────────────────────
   for (const m of models) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className =
       "model-selector__option" + (m === selectedValue ? " selected" : "");
     btn.dataset.value = m;
+
+    // Split "provider/model-name" into two visual lines
+    const slashIdx = m.indexOf("/");
+    const providerLabel = slashIdx !== -1 ? m.slice(0, slashIdx) : null;
+    const modelName = slashIdx !== -1 ? m.slice(slashIdx + 1) : m;
+
+    const providerConfig = detectProvider(m);
+    const iconHtml = providerConfig
+      ? `<img class="model-selector__option-icon" src="${providerConfig.iconUrl}" alt="${providerConfig.name}" />`
+      : `<span class="model-selector__option-icon-placeholder"></span>`;
+
     btn.innerHTML = `
-      <span style="flex:1;overflow:hidden;text-overflow:ellipsis">${escapeHtml(m)}</span>
+      ${iconHtml}
+      <span class="model-selector__option-text">
+        ${providerLabel ? `<span class="model-selector__option-provider">${escapeHtml(providerLabel)}</span>` : ""}
+        <span class="model-selector__option-name">${escapeHtml(modelName)}</span>
+      </span>
       <svg class="model-selector__check" viewBox="0 0 13 13" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path d="M2 7l3 3 6-6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>`;
@@ -459,6 +624,7 @@ function renderCustomDropdown(selectedValue, filter = "") {
 }
 
 function openCustomDropdown() {
+  dropdownActiveFilter = null; // reset filter pill on each open
   dom.modelSelectorDropdown.classList.add("open");
   dom.modelSelectorTrigger.setAttribute("aria-expanded", "true");
   dom.modelSelectorSearch.value = "";
@@ -475,6 +641,19 @@ function selectTopbarModel(value) {
   dom.topbarModel.value = value;
   dom.modelSelectorLabel.textContent = value || "Select model";
   dom.modelSelectorLabel.classList.toggle("placeholder", !value);
+  // Update trigger icon with the provider's favicon
+  if (dom.modelSelectorIcon) {
+    const provider = value ? detectProvider(value) : null;
+    if (provider) {
+      dom.modelSelectorIcon.src = provider.iconUrl;
+      dom.modelSelectorIcon.alt = provider.name;
+      dom.modelSelectorIcon.style.display = "block";
+    } else {
+      dom.modelSelectorIcon.src = "";
+      dom.modelSelectorIcon.alt = "";
+      dom.modelSelectorIcon.style.display = "none";
+    }
+  }
   // Trigger the existing handler
   onTopbarModelChange();
 }
@@ -646,6 +825,8 @@ async function duplicateConversation(convId) {
       title: conv.title + " (copy)",
       model: conv.model || "",
       system_prompt: conv.system_prompt || "",
+      temperature: conv.temperature !== undefined ? conv.temperature : "",
+      top_p: conv.top_p !== undefined ? conv.top_p : "",
       endpoint: conv.endpoint || "",
       api_key: conv.api_key || "",
       stream: conv.stream || "false",
@@ -729,6 +910,15 @@ function buildActionsHtml(role) {
         <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
       Edit
+    </button>
+    <button class="btn--delete" title="Delete">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M3 6h18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M10 11v6M14 11v6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Delete
     </button>
     <button class="btn--resend">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -893,6 +1083,15 @@ async function selectConversation(id) {
   renderConversationList();
   closeConvContextMenu();
 
+  // Auto-close sidebar on mobile after selecting a conversation
+  if (
+    window.innerWidth <= 768 &&
+    !dom.sidebar.classList.contains("collapsed")
+  ) {
+    dom.sidebar.classList.add("collapsed");
+    dom.sidebarBackdrop.classList.remove("active");
+  }
+
   try {
     const conv = storage.getConversation(id);
     if (!conv) throw new Error("Conversation not found");
@@ -939,6 +1138,8 @@ async function createNewConversation() {
       title: "New Conversation",
       model,
       system_prompt: s.system_prompt || "",
+      temperature: s.temperature !== undefined ? s.temperature : "",
+      top_p: s.top_p !== undefined ? s.top_p : "",
       endpoint: s.endpoint,
       api_key: s.api_key || "",
       stream: s.stream || "false",
@@ -966,6 +1167,12 @@ async function openEditConversationModal(id) {
     dom.convApiKey.value = conv.api_key || "";
     dom.convTitle.value = conv.title || "";
     dom.convSystemPrompt.value = conv.system_prompt || "";
+    dom.convTemperature.value =
+      conv.temperature !== undefined && conv.temperature !== ""
+        ? conv.temperature
+        : "";
+    dom.convTopP.value =
+      conv.top_p !== undefined && conv.top_p !== "" ? conv.top_p : "";
     dom.convStream.checked = conv.stream === "true" || conv.stream === true;
 
     const ep = conv.endpoint || "";
@@ -997,6 +1204,10 @@ async function saveConversationModal() {
   const api_key = dom.convApiKey.value.trim();
   const title = dom.convTitle.value.trim() || "New Conversation";
   const system_prompt = dom.convSystemPrompt.value.trim();
+  const temperatureRaw = dom.convTemperature.value;
+  const temperature = temperatureRaw !== "" ? parseFloat(temperatureRaw) : "";
+  const topPRaw = dom.convTopP.value;
+  const top_p = topPRaw !== "" ? parseFloat(topPRaw) : "";
   const stream = String(dom.convStream.checked);
 
   if (!endpoint) {
@@ -1017,6 +1228,8 @@ async function saveConversationModal() {
       title,
       model,
       system_prompt,
+      temperature,
+      top_p,
       endpoint,
       api_key,
       stream,
@@ -1136,6 +1349,15 @@ async function resendFromMessage(messageId) {
 }
 
 /*  ═══════════════════════════════════════════════════════════════════════════
+    Delete Message
+    ═══════════════════════════════════════════════════════════════════════════ */
+function deleteMessage(messageId) {
+  if (!state.activeConversationId) return;
+  storage.deleteMessage(state.activeConversationId, messageId);
+  renderMessages(storage.getMessages(state.activeConversationId));
+}
+
+/*  ═══════════════════════════════════════════════════════════════════════════
     Inline Edit
     ═══════════════════════════════════════════════════════════════════════════ */
 function startEditMessage(wrapper, role, messageId) {
@@ -1153,6 +1375,13 @@ function startEditMessage(wrapper, role, messageId) {
   // ── Swap bubble into an editable textarea ─────────────────
   const bubble = wrapper.querySelector(".message__bubble");
   const originalBubbleHtml = bubble.innerHTML;
+
+  // Capture the rendered height BEFORE clearing so that assistant messages
+  // (whose markdown renders taller than the raw text) open at the same visual
+  // size as the bubble they replace.  We subtract the padding change:
+  // base bubble uses 11px top/bottom, edit mode uses 6px top/bottom → 10px less.
+  const renderedHeight = bubble.getBoundingClientRect().height - 10;
+
   bubble.innerHTML = "";
 
   const textarea = document.createElement("textarea");
@@ -1160,13 +1389,17 @@ function startEditMessage(wrapper, role, messageId) {
   textarea.value = originalContent;
   bubble.appendChild(textarea);
 
-  // Auto-size the textarea to fit its content
-  textarea.style.height = "auto";
-  textarea.style.height = Math.min(textarea.scrollHeight, 480) + "px";
-  textarea.addEventListener("input", () => {
-    textarea.style.height = "auto";
-    textarea.style.height = Math.min(textarea.scrollHeight, 480) + "px";
-  });
+  // On initial open: use whichever is larger — the raw content height or the
+  // original rendered bubble height — so the edit area never feels smaller
+  // than the message it replaced.  While typing, resize freely to content.
+  const autoResize = () => {
+    textarea.style.height = "0";
+    textarea.style.height = textarea.scrollHeight + "px";
+  };
+  textarea.style.height = "0";
+  textarea.style.height =
+    Math.max(textarea.scrollHeight, renderedHeight) + "px";
+  textarea.addEventListener("input", autoResize);
   textarea.focus();
   textarea.setSelectionRange(textarea.value.length, textarea.value.length);
 
@@ -1349,7 +1582,10 @@ async function sendMessageBlocking(
   const history = storage.getMessages(state.activeConversationId);
   const llmMessages = [];
   if (conv.system_prompt && conv.system_prompt.trim()) {
-    llmMessages.push({ role: "system", content: conv.system_prompt.trim() });
+    llmMessages.push({
+      role: "system",
+      content: conv.system_prompt.trim() + "\n",
+    });
   }
 
   const imageAttachments = attachments.filter((a) => a.type === "image");
@@ -1392,14 +1628,20 @@ async function sendMessageBlocking(
     headers["Authorization"] = `Bearer ${conv.api_key.trim()}`;
   }
 
+  const reqBody = {
+    model: conv.model,
+    messages: llmMessages,
+    stream: false,
+  };
+  const _temp = parseFloat(conv.temperature);
+  if (!isNaN(_temp)) reqBody.temperature = _temp;
+  const _topP = parseFloat(conv.top_p);
+  if (!isNaN(_topP)) reqBody.top_p = _topP;
+
   const res = await fetch(url, {
     method: "POST",
     headers,
-    body: JSON.stringify({
-      model: conv.model,
-      messages: llmMessages,
-      stream: false,
-    }),
+    body: JSON.stringify(reqBody),
   });
 
   if (!res.ok) {
@@ -1443,7 +1685,10 @@ async function sendMessageStreaming(
   const history = storage.getMessages(state.activeConversationId);
   const llmMessages = [];
   if (conv.system_prompt && conv.system_prompt.trim()) {
-    llmMessages.push({ role: "system", content: conv.system_prompt.trim() });
+    llmMessages.push({
+      role: "system",
+      content: conv.system_prompt.trim() + "\n",
+    });
   }
 
   const imageAttachments = attachments.filter((a) => a.type === "image");
@@ -1488,14 +1733,20 @@ async function sendMessageStreaming(
   const url = `${baseUrl}/chat/completions`;
 
   return new Promise((resolve, reject) => {
+    const reqBody = {
+      model: conv.model,
+      messages: llmMessages,
+      stream: true,
+    };
+    const _temp = parseFloat(conv.temperature);
+    if (!isNaN(_temp)) reqBody.temperature = _temp;
+    const _topP = parseFloat(conv.top_p);
+    if (!isNaN(_topP)) reqBody.top_p = _topP;
+
     fetch(url, {
       method: "POST",
       headers,
-      body: JSON.stringify({
-        model: conv.model,
-        messages: llmMessages,
-        stream: true,
-      }),
+      body: JSON.stringify(reqBody),
     })
       .then(async (res) => {
         if (!res.ok) {
@@ -1585,6 +1836,15 @@ function openSettingsModal() {
   dom.settingsEndpoint.value = state.settings.endpoint || "";
   dom.settingsApiKey.value = state.settings.api_key || "";
   dom.settingsSystemPrompt.value = state.settings.system_prompt || "";
+  dom.settingsTemperature.value =
+    state.settings.temperature !== undefined &&
+    state.settings.temperature !== ""
+      ? state.settings.temperature
+      : "";
+  dom.settingsTopP.value =
+    state.settings.top_p !== undefined && state.settings.top_p !== ""
+      ? state.settings.top_p
+      : "";
   dom.settingsStream.checked = state.settings.stream === "true";
 
   openModal(dom.modalSettings);
@@ -1594,6 +1854,10 @@ async function saveSettingsModal() {
   const endpoint = dom.settingsEndpoint.value.trim();
   const api_key = dom.settingsApiKey.value.trim();
   const system_prompt = dom.settingsSystemPrompt.value.trim();
+  const temperatureRaw = dom.settingsTemperature.value;
+  const temperature = temperatureRaw !== "" ? parseFloat(temperatureRaw) : "";
+  const topPRaw = dom.settingsTopP.value;
+  const top_p = topPRaw !== "" ? parseFloat(topPRaw) : "";
   const stream = String(dom.settingsStream.checked);
 
   // Preserve the existing model value when saving settings
@@ -1606,6 +1870,8 @@ async function saveSettingsModal() {
       api_key,
       model,
       system_prompt,
+      temperature,
+      top_p,
       stream,
     });
     showToast("Settings saved", "success");
@@ -1697,8 +1963,37 @@ function bindEvents() {
   document
     .getElementById("btn-toggle-sidebar")
     .addEventListener("click", () => {
-      dom.sidebar.classList.toggle("collapsed");
+      const isMobile = window.innerWidth <= 768;
+      if (isMobile) {
+        const isOpen = !dom.sidebar.classList.contains("collapsed");
+        if (isOpen) {
+          // Close sidebar
+          dom.sidebar.classList.add("collapsed");
+          dom.sidebarBackdrop.classList.remove("active");
+        } else {
+          // Open sidebar
+          dom.sidebar.classList.remove("collapsed");
+          dom.sidebarBackdrop.classList.add("active");
+        }
+      } else {
+        dom.sidebar.classList.toggle("collapsed");
+      }
     });
+
+  // Topbar hamburger — open sidebar on mobile
+  const btnTopbarMenu = document.getElementById("btn-topbar-menu");
+  if (btnTopbarMenu) {
+    btnTopbarMenu.addEventListener("click", () => {
+      dom.sidebar.classList.remove("collapsed");
+      dom.sidebarBackdrop.classList.add("active");
+    });
+  }
+
+  // Sidebar backdrop click — close sidebar on mobile
+  dom.sidebarBackdrop.addEventListener("click", () => {
+    dom.sidebar.classList.add("collapsed");
+    dom.sidebarBackdrop.classList.remove("active");
+  });
 
   // Theme toggle
   dom.btnThemeToggle.addEventListener("click", toggleTheme);
@@ -1878,6 +2173,14 @@ function bindEvents() {
           : "assistant";
         startEditMessage(wrapper, role, wrapper.dataset.messageId);
       }
+      return;
+    }
+
+    const deleteBtn = e.target.closest(".btn--delete");
+    if (deleteBtn) {
+      const wrapper = deleteBtn.closest(".message[data-message-id]");
+      if (wrapper) deleteMessage(wrapper.dataset.messageId);
+      return;
     }
   });
 
@@ -1944,6 +2247,11 @@ async function init() {
   initTheme();
   loadModels();
   bindEvents();
+
+  // On mobile, start with the sidebar hidden (collapsed)
+  if (window.innerWidth <= 768) {
+    dom.sidebar.classList.add("collapsed");
+  }
   await loadSettings();
   await loadConversations();
 
