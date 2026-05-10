@@ -1,0 +1,247 @@
+/* ============================================================
+   Utility
+   ============================================================ */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+}
+
+/* ============================================================
+   Generic Buttons
+   ============================================================ */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-sans);
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+        background var(--transition),
+        opacity var(--transition),
+        color var(--transition),
+        border-color var(--transition);
+    white-space: nowrap;
+    text-decoration: none;
+}
+
+.btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.btn--primary {
+    background: var(--clr-primary);
+    color: #fff;
+}
+.btn--primary:hover:not(:disabled) {
+    background: var(--clr-primary-dark);
+}
+
+.btn--ghost {
+    background: transparent;
+    color: var(--clr-text-muted);
+    border: 1px solid var(--clr-border);
+}
+.btn--ghost:hover:not(:disabled) {
+    background: var(--clr-surface-2);
+    color: var(--clr-text);
+}
+
+.btn--icon {
+    padding: 6px;
+    background: transparent;
+    color: var(--clr-text-muted);
+    font-size: 1rem;
+    border-radius: var(--radius-sm);
+    border: none;
+}
+.btn--icon:hover:not(:disabled) {
+    background: var(--clr-surface);
+    color: var(--clr-text);
+}
+
+.btn--topbar-menu {
+    display: none;
+    flex-shrink: 0;
+}
+
+.btn--danger {
+    color: var(--clr-danger);
+    border: 1px solid transparent;
+}
+.btn--danger:hover:not(:disabled) {
+    background: rgba(248, 113, 113, 0.12);
+    border-color: var(--clr-danger);
+}
+
+.btn--danger-solid {
+    background: var(--clr-danger);
+    color: #fff;
+    border-color: var(--clr-danger);
+}
+.btn--danger-solid:hover:not(:disabled) {
+    background: var(--clr-danger-dark);
+    border-color: var(--clr-danger-dark);
+}
+
+.btn--full {
+    width: 100%;
+}
+
+.btn--sm {
+    padding: 5px 12px;
+    font-size: 0.8rem;
+    border-radius: var(--radius-xs);
+    flex-shrink: 0;
+}
+
+/* ============================================================
+   Input bar  (ChatGPT / OpenRouter style)
+   ============================================================ */
+.input-bar {
+    flex-shrink: 0;
+    padding: 14px 16px 18px;
+    background: var(--clr-bg);
+    display: flex;
+    justify-content: center;
+}
+
+.input-bar__inner {
+    width: 100%;
+    max-width: var(--chat-max-width);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.input-bar__wrap {
+    position: relative;
+    width: 100%;
+    display: flex;
+    align-items: flex-end;
+    background: var(--clr-surface);
+    border: 1px solid var(--clr-border);
+    border-radius: var(--radius);
+    transition: border-color var(--transition);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+}
+
+.input-bar__wrap:focus-within {
+    border-color: var(--clr-primary);
+}
+
+/* Drag-and-drop active state */
+.input-bar.drag-over .input-bar__wrap {
+    border-color: var(--clr-primary);
+    box-shadow:
+        0 0 0 3px var(--clr-primary-faint),
+        0 2px 12px rgba(0, 0, 0, 0.18);
+    transition:
+        border-color 0.1s ease,
+        box-shadow 0.1s ease;
+}
+
+.input-bar__textarea {
+    flex: 1;
+    resize: none;
+    background: transparent;
+    color: var(--clr-text);
+    border: none;
+    outline: none;
+    padding: 12px 14px;
+    font-family: var(--font-sans);
+    font-size: 0.925rem;
+    line-height: 1.55;
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+.input-bar__textarea::placeholder {
+    color: var(--clr-text-muted);
+}
+
+.input-bar__textarea:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* Send button — inside the input wrap */
+.btn--send {
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    margin: 0 6px 6px 0;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--clr-send-btn);
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition:
+        background var(--transition),
+        opacity var(--transition);
+}
+
+.btn--send:hover:not(:disabled) {
+    background: var(--clr-send-btn-hover);
+}
+
+.btn--send:disabled {
+    background: var(--clr-surface-2);
+    color: var(--clr-text-faint);
+    cursor: not-allowed;
+    opacity: 1;
+}
+
+/* ── Theme toggle ─────────────────────────────────────────── */
+.btn--theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    background: transparent;
+    color: var(--clr-text-muted);
+    border: 1px solid var(--clr-border);
+    border-radius: 50%;
+    font-size: 0.95rem;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition:
+        background var(--transition),
+        color var(--transition),
+        border-color var(--transition),
+        transform 0.2s ease;
+}
+.btn--theme-toggle:hover {
+    background: var(--clr-primary-faint);
+    color: var(--clr-primary);
+    border-color: var(--clr-primary);
+    transform: rotate(18deg) scale(1.1);
+}
+.btn--theme-toggle:active {
+    transform: rotate(18deg) scale(0.95);
+}
+
+/* ── Settings button (in sidebar footer) ─────────────────── */
+#btn-open-settings {
+    font-size: 0.8rem;
+    gap: 7px;
+}

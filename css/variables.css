@@ -1,0 +1,166 @@
+﻿/* ============================================================
+   Reset & Box Sizing
+   ============================================================ */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html.theme-loaded *,
+html.theme-loaded *::before,
+html.theme-loaded *::after {
+    transition:
+        background-color 0.25s ease,
+        color 0.25s ease,
+        border-color 0.25s ease;
+}
+
+/* ============================================================
+   Color Tokens — Dark (default)
+   ============================================================ */
+:root,
+[data-theme="dark"] {
+    /* Structural — Discord dark grays */
+    --clr-sidebar-bg: #2b2d31;
+    --clr-bg: #313338;
+    --clr-surface: #383a40;
+    --clr-surface-2: #3f4147;
+    --clr-surface-3: #2b2d31;
+
+    /* Accent — pastel blue-gray */
+    --clr-primary: #8ba4c0;
+    --clr-primary-dark: #7392af;
+    --clr-primary-faint: rgba(139, 164, 192, 0.12);
+
+    /* Text */
+    --clr-text: #dcddde;
+    --clr-text-muted: #96989d;
+    --clr-text-faint: #5c5f66;
+
+    /* Borders */
+    --clr-border: #3f4147;
+    --clr-border-subtle: #36383d;
+
+    /* Messages */
+    --clr-user-bubble-bg: #3f4147;
+    --clr-user-bubble-border: #4e5058;
+    --clr-assistant-bubble-bg: #383a40;
+    --clr-assistant-bubble-border: #42444a;
+
+    /* Send button */
+    --clr-send-btn: #8ba4c0;
+    --clr-send-btn-hover: #7392af;
+
+    /* Status */
+    --clr-danger: #f87171;
+    --clr-danger-dark: #dc2626;
+    --clr-success: #57f287;
+    --clr-toast-bg: #1e1f22;
+
+    /* Code */
+    --clr-code-bg: #1e1f22;
+    --clr-code-inline: rgba(255, 255, 255, 0.07);
+
+    /* Scrollbar */
+    --clr-scrollbar: #2b2d31;
+    --clr-scrollbar-thumb: #1a1b1e;
+    --clr-scrollbar-hover: #4e5058;
+}
+
+/* ============================================================
+   Color Tokens — Light
+   ============================================================ */
+[data-theme="light"] {
+    --clr-sidebar-bg: #f2f3f5;
+    --clr-bg: #ffffff;
+    --clr-surface: #f2f3f5;
+    --clr-surface-2: #e3e5e8;
+    --clr-surface-3: #d4d7dc;
+
+    --clr-primary: #5b80a0;
+    --clr-primary-dark: #4a6b88;
+    --clr-primary-faint: rgba(91, 128, 160, 0.1);
+
+    --clr-text: #2e3338;
+    --clr-text-muted: #747f8d;
+    --clr-text-faint: #b9bbbe;
+
+    --clr-border: #e3e5e8;
+    --clr-border-subtle: #ebedef;
+
+    --clr-user-bubble-bg: #e9eaec;
+    --clr-user-bubble-border: #d4d7dc;
+    --clr-assistant-bubble-bg: #f2f3f5;
+    --clr-assistant-bubble-border: #e3e5e8;
+
+    /* Send button */
+    --clr-send-btn: #5b80a0;
+    --clr-send-btn-hover: #4a6b88;
+
+    --clr-danger: #dc2626;
+    --clr-danger-dark: #b91c1c;
+    --clr-success: #3ba55d;
+    --clr-toast-bg: #1a1a1a;
+
+    --clr-code-bg: #e3e5e8;
+    --clr-code-inline: rgba(0, 0, 0, 0.07);
+
+    --clr-scrollbar: #f2f3f5;
+    --clr-scrollbar-thumb: #c7cace;
+    --clr-scrollbar-hover: #b9bbbe;
+}
+
+/* ============================================================
+   Sizing & Typography Tokens
+   ============================================================ */
+:root {
+    --sidebar-width: 260px;
+    --sidebar-collapsed-width: 52px;
+    --topbar-height: 54px;
+    --chat-max-width: 1000px;
+    --radius: 10px;
+    --radius-sm: 7px;
+    --radius-xs: 5px;
+    --radius-pill: 999px;
+
+    --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --font-mono: "Fira Code", "Cascadia Code", "Consolas", monospace;
+
+    --transition: 0.18s ease;
+}
+
+/* ============================================================
+   Base
+   ============================================================ */
+html,
+body {
+    height: 100%;
+    font-family: var(--font-sans);
+    background: var(--clr-bg);
+    color: var(--clr-text);
+    font-size: 15px;
+    line-height: 1.6;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+    width: 5px;
+}
+::-webkit-scrollbar-track {
+    background: var(--clr-scrollbar);
+}
+::-webkit-scrollbar-thumb {
+    background: var(--clr-scrollbar-thumb);
+    border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: var(--clr-scrollbar-hover);
+}
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--clr-scrollbar-thumb) var(--clr-scrollbar);
+}

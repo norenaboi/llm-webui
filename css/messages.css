@@ -1,0 +1,566 @@
+/* ============================================================
+   Messages area
+   ============================================================ */
+.messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 32px 16px 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+}
+
+/* ── Empty state ─────────────────────────────────────────── */
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    flex: 1;
+    text-align: center;
+    color: var(--clr-text-muted);
+    padding: 40px 24px;
+    max-width: var(--chat-max-width);
+    width: 100%;
+}
+
+.empty-state__icon {
+    color: var(--clr-text-faint);
+    line-height: 1;
+}
+
+.empty-state h2 {
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: var(--clr-text);
+}
+
+.empty-state p {
+    font-size: 0.875rem;
+    max-width: 400px;
+    line-height: 1.6;
+}
+
+/* ── Message wrapper ─────────────────────────────────────── */
+.message {
+    width: 100%;
+    max-width: var(--chat-max-width);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 4px 0;
+    animation: fadeSlideIn 0.18s ease;
+}
+
+.message--user {
+    align-items: flex-end;
+}
+
+.message--assistant {
+    align-items: flex-start;
+}
+
+/* ── Role label ──────────────────────────────────────────── */
+.message__role {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0 4px;
+    margin-bottom: 2px;
+}
+
+.message--user .message__role {
+    color: var(--clr-text-muted);
+    text-align: right;
+}
+
+.message--assistant .message__role {
+    color: var(--clr-text-muted);
+}
+
+/* ── Bubbles ─────────────────────────────────────────────── */
+.message__bubble {
+    padding: 11px 15px;
+    border-radius: var(--radius);
+    line-height: 1.75;
+    word-break: break-word;
+    max-width: 85%;
+}
+
+/* User bubble — Discord-style, right-aligned */
+.message--user .message__bubble {
+    background: var(--clr-user-bubble-bg);
+    color: var(--clr-text);
+    border: 1px solid var(--clr-user-bubble-border);
+    border-radius: 18px 4px 18px 18px;
+    font-size: 0.88rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* Assistant bubble — Discord-style, left-aligned */
+.message--assistant .message__bubble {
+    background: var(--clr-assistant-bubble-bg);
+    color: var(--clr-text);
+    border: 1px solid var(--clr-assistant-bubble-border);
+    border-radius: 4px 18px 18px 18px;
+    padding: 11px 15px;
+    max-width: 100%;
+    font-size: 0.9rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.message__time {
+    font-size: 0.67rem;
+    color: var(--clr-text-faint);
+    padding: 0 4px;
+}
+
+/* ── Thinking / loading bubble ───────────────────────────── */
+.message--thinking .message__bubble {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    padding: 12px 4px;
+    background: transparent;
+    border: none;
+}
+
+.dot-flashing {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+}
+
+.dot-flashing span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--clr-text-muted);
+    animation: dotFlash 1.2s infinite ease-in-out;
+}
+
+.dot-flashing span:nth-child(2) {
+    animation-delay: 0.2s;
+}
+.dot-flashing span:nth-child(3) {
+    animation-delay: 0.4s;
+}
+
+/* ── Message action buttons (resend / regenerate) ───────── */
+.message__actions {
+    display: flex;
+    gap: 4px;
+    padding: 0 4px;
+    opacity: 0;
+    transition: opacity var(--transition);
+}
+
+.message:hover .message__actions,
+.message:focus-within .message__actions {
+    opacity: 1;
+}
+
+.btn--resend,
+.btn--edit,
+.btn--delete {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border: 1px solid var(--clr-border);
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--clr-text-muted);
+    font-size: 0.7rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+        background var(--transition),
+        color var(--transition),
+        border-color var(--transition);
+}
+
+.btn--resend:hover,
+.btn--edit:hover {
+    background: var(--clr-surface-2);
+    color: var(--clr-text);
+    border-color: var(--clr-text-muted);
+}
+
+.btn--delete:hover {
+    background: rgba(220, 53, 69, 0.12);
+    color: #dc3545;
+    border-color: rgba(220, 53, 69, 0.4);
+}
+
+.btn--resend:disabled,
+.btn--edit:disabled,
+.btn--delete:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* ── Inline edit: editing state ───────────────────────────── */
+.message--editing .message__bubble {
+    width: 100%;
+    padding: 6px;
+    background: var(--clr-surface) !important;
+    border-color: var(--clr-primary) !important;
+}
+
+.message__edit-area {
+    width: 100%;
+    resize: none;
+    background: transparent;
+    color: var(--clr-text);
+    border: none;
+    outline: none;
+    font-family: var(--font-sans);
+    font-size: inherit;
+    line-height: 1.6;
+    padding: 4px 6px;
+    overflow-y: hidden;
+}
+
+.message__edit-area::placeholder {
+    color: var(--clr-text-muted);
+}
+
+/* ── Inline edit: save / cancel row ──────────────────────── */
+.message__edit-actions {
+    display: flex;
+    gap: 6px;
+    padding: 2px 4px;
+    align-items: center;
+}
+
+.btn--edit-save,
+.btn--edit-cancel {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: var(--radius-pill);
+    font-size: 0.7rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+        background var(--transition),
+        color var(--transition),
+        border-color var(--transition);
+}
+
+.btn--edit-save {
+    background: var(--clr-primary);
+    color: #fff;
+    border: 1px solid var(--clr-primary);
+}
+
+.btn--edit-save:hover {
+    filter: brightness(1.12);
+}
+
+.btn--edit-cancel {
+    background: transparent;
+    color: var(--clr-text-muted);
+    border: 1px solid var(--clr-border);
+}
+
+.btn--edit-cancel:hover {
+    background: var(--clr-surface-2);
+    color: var(--clr-text);
+    border-color: var(--clr-text-muted);
+}
+
+/* ── Attachment preview strip ────────────────────────────── */
+.attachment-preview {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 0;
+    min-height: 0;
+}
+
+.attachment-preview:empty {
+    display: none;
+}
+
+.attachment-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px 4px 6px;
+    background: var(--clr-surface);
+    border: 1px solid var(--clr-border);
+    border-radius: var(--radius-sm);
+    font-size: 0.78rem;
+    color: var(--clr-text);
+    max-width: 220px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+
+.attachment-chip__thumb {
+    width: 28px;
+    height: 28px;
+    object-fit: cover;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
+.attachment-chip__icon {
+    flex-shrink: 0;
+    color: var(--clr-text-muted);
+}
+
+.attachment-chip__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+
+.attachment-chip__remove {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--clr-text-muted);
+    cursor: pointer;
+    font-size: 0.9rem;
+    line-height: 1;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition:
+        background var(--transition),
+        color var(--transition);
+}
+
+.attachment-chip__remove:hover {
+    background: var(--clr-surface-2);
+    color: var(--clr-text);
+}
+
+/* ── Text file chips row (sits between role label and bubble) */
+.message__attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    max-width: 85%;
+}
+
+.message--user .message__attachments {
+    justify-content: flex-end;
+}
+
+.message__file-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px 6px 8px;
+    background: var(--clr-surface);
+    border: 1px solid var(--clr-border);
+    border-radius: var(--radius-sm);
+    font-size: 0.78rem;
+    color: var(--clr-text-muted);
+    max-width: 220px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.message__file-chip svg {
+    flex-shrink: 0;
+    color: var(--clr-text-muted);
+}
+
+.message__file-chip span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+/* Edit-mode chip: thumbnail for images */
+.message__file-chip__thumb {
+    width: 20px;
+    height: 20px;
+    object-fit: cover;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+
+/* Edit-mode chip: × remove button */
+.message__file-chip__remove {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--clr-text-muted);
+    cursor: pointer;
+    font-size: 0.9rem;
+    line-height: 1;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition:
+        background var(--transition),
+        color var(--transition);
+}
+
+.message__file-chip__remove:hover {
+    background: rgba(220, 53, 69, 0.12);
+    color: #dc3545;
+}
+
+/* ── Inline image inside message bubble ──────────────────── */
+.message__attachment-img {
+    display: block;
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: var(--radius-sm);
+    margin-bottom: 8px;
+    object-fit: contain;
+}
+
+/* ── Markdown prose inside bubbles ──────────────────────── */
+.message__bubble pre {
+    background: var(--clr-code-bg);
+    border: 1px solid var(--clr-border);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    overflow-x: auto;
+    margin: 10px 0;
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+}
+
+.message__bubble code {
+    font-family: var(--font-mono);
+    font-size: 0.84em;
+    background: var(--clr-code-inline);
+    padding: 2px 5px;
+    border-radius: 4px;
+}
+
+.message__bubble pre code {
+    background: none;
+    padding: 0;
+}
+
+.message__bubble p {
+    margin: 0 0 0.65em;
+}
+.message__bubble p:last-child {
+    margin-bottom: 0;
+}
+
+.message__bubble h1,
+.message__bubble h2,
+.message__bubble h3,
+.message__bubble h4,
+.message__bubble h5,
+.message__bubble h6 {
+    margin: 1em 0 0.4em;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--clr-text);
+}
+.message__bubble h1:first-child,
+.message__bubble h2:first-child,
+.message__bubble h3:first-child {
+    margin-top: 0;
+}
+.message__bubble h1 {
+    font-size: 1.3em;
+}
+.message__bubble h2 {
+    font-size: 1.15em;
+}
+.message__bubble h3 {
+    font-size: 1.05em;
+}
+.message__bubble h4,
+.message__bubble h5,
+.message__bubble h6 {
+    font-size: 1em;
+}
+
+.message__bubble hr {
+    border: none;
+    border-top: 1px solid var(--clr-border);
+    margin: 0.8em 0;
+}
+
+.message__bubble ul,
+.message__bubble ol {
+    margin: 0.4em 0 0.65em 1.4em;
+    padding: 0;
+}
+.message__bubble li {
+    margin: 0.2em 0;
+}
+.message__bubble li > ul,
+.message__bubble li > ol {
+    margin-top: 0.15em;
+    margin-bottom: 0.15em;
+}
+
+.message__bubble blockquote {
+    margin: 0.5em 0;
+    padding: 0.3em 0.8em;
+    border-left: 3px solid var(--clr-primary);
+    color: var(--clr-text-muted);
+    background: var(--clr-surface);
+    border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
+}
+.message__bubble blockquote p {
+    margin: 0;
+}
+
+.message__bubble table {
+    border-collapse: collapse;
+    margin: 0.65em 0;
+    font-size: 0.875em;
+    width: 100%;
+}
+.message__bubble th,
+.message__bubble td {
+    border: 1px solid var(--clr-border);
+    padding: 6px 10px;
+    text-align: left;
+}
+.message__bubble th {
+    background: var(--clr-surface-2);
+    font-weight: 600;
+}
+.message__bubble tr:nth-child(even) td {
+    background: var(--clr-surface);
+}
+
+.message__bubble a {
+    color: var(--clr-primary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+.message__bubble a:hover {
+    color: var(--clr-primary-dark);
+}
+
+.message__bubble strong {
+    font-weight: 700;
+}
+.message__bubble em {
+    font-style: italic;
+}
+.message__bubble del {
+    text-decoration: line-through;
+    color: var(--clr-text-muted);
+}

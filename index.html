@@ -5,7 +5,13 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>LLM WebUI</title>
         <link rel="icon" type="image/x-icon" href="favicon.ico" />
-        <link rel="stylesheet" href="style.css" />
+        <link rel="stylesheet" href="css/variables.css" />
+        <link rel="stylesheet" href="css/sidebar.css" />
+        <link rel="stylesheet" href="css/model-selector.css" />
+        <link rel="stylesheet" href="css/messages.css" />
+        <link rel="stylesheet" href="css/buttons.css" />
+        <link rel="stylesheet" href="css/modals.css" />
+        <link rel="stylesheet" href="css/main.css" />
         <script>
             // Inline theme init — runs before first paint to prevent flash
             (function () {
@@ -218,7 +224,25 @@
                         </div>
                     </div>
 
-                    <div class="topbar__center" id="topbar-title"></div>
+                    <div class="topbar__center" id="topbar-title">
+                        <svg
+                            class="topbar__title-icon"
+                            width="12"
+                            height="12"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            xmlns="http://www.w3.org/2000/svg"
+                        >
+                            <path
+                                d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            />
+                        </svg>
+                        <span class="topbar__title-text"></span>
+                    </div>
                 </header>
 
                 <div class="messages" id="messages">
@@ -292,34 +316,33 @@
                             id="attachment-preview"
                         ></div>
                         <div class="input-bar__wrap">
-                            <button
-                                class="btn btn--upload"
-                                id="btn-upload"
-                                disabled
-                                title="Attach file"
-                            >
-                                <svg
-                                    width="16"
-                                    height="16"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    xmlns="http://www.w3.org/2000/svg"
-                                >
-                                    <path
-                                        d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66L9.64 16.34a2 2 0 0 1-2.83-2.83l8.49-8.49"
-                                        stroke="currentColor"
-                                        stroke-width="2"
-                                        stroke-linecap="round"
-                                        stroke-linejoin="round"
-                                    />
-                                </svg>
-                            </button>
                             <div class="plus-menu-wrap" id="plus-menu-wrap">
                                 <div
                                     class="plus-menu"
                                     id="plus-menu"
                                     aria-hidden="true"
                                 >
+                                    <button
+                                        class="plus-menu__item"
+                                        id="btn-attach-file"
+                                    >
+                                        <svg
+                                            width="14"
+                                            height="14"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            xmlns="http://www.w3.org/2000/svg"
+                                        >
+                                            <path
+                                                d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66L9.64 16.34a2 2 0 0 1-2.83-2.83l8.49-8.49"
+                                                stroke="currentColor"
+                                                stroke-width="1.8"
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                            />
+                                        </svg>
+                                        <span>Attach File</span>
+                                    </button>
                                     <button
                                         class="plus-menu__item"
                                         id="btn-generate-image"
@@ -554,6 +577,11 @@
                         class="form-input"
                         placeholder="sk-… (leave empty for local models)"
                     />
+                    <p class="form-hint">
+                        🔑 Your key is saved in <strong>localStorage</strong> in
+                        this browser. For maximum security, clear your browser
+                        storage when you're done.
+                    </p>
 
                     <label class="form-label" for="conv-model">
                         Model <span class="required">*</span>
@@ -661,17 +689,97 @@
 
                 <div class="modal__body">
                     <label class="form-label">Endpoint</label>
-                    <div class="endpoint-row">
-                        <select
-                            id="settings-endpoint-preset"
-                            class="form-input form-select endpoint-preset"
+                    <div class="csel" id="settings-endpoint-csel">
+                        <button
+                            class="csel__trigger"
+                            type="button"
+                            aria-haspopup="listbox"
+                            aria-expanded="false"
                         >
-                            <option value="openrouter">OpenRouter</option>
-                            <option value="pollinations">Pollinations</option>
-                            <option value="noreproxy">Nore Proxy</option>
-                            <option value="custom">Custom…</option>
-                        </select>
+                            <span class="csel__label">OpenRouter</span>
+                            <svg
+                                class="csel__chevron"
+                                width="11"
+                                height="11"
+                                viewBox="0 0 10 10"
+                                fill="none"
+                                xmlns="http://www.w3.org/2000/svg"
+                            >
+                                <path
+                                    d="M2 3.5 5 6.5 8 3.5"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                />
+                            </svg>
+                        </button>
+                        <div class="csel__menu" role="listbox">
+                            <button
+                                class="csel__option"
+                                role="option"
+                                data-value="noreproxy"
+                            >
+                                Nore Proxy
+                            </button>
+                            <button
+                                class="csel__option"
+                                role="option"
+                                data-value="openrouter"
+                            >
+                                OpenRouter
+                            </button>
+                            <button
+                                class="csel__option"
+                                role="option"
+                                data-value="googleaistudio"
+                            >
+                                Google AI Studio
+                            </button>
+                            <button
+                                class="csel__option"
+                                role="option"
+                                data-value="openai"
+                            >
+                                OpenAI
+                            </button>
+                            <button
+                                class="csel__option"
+                                role="option"
+                                data-value="pollinations"
+                            >
+                                Pollinations
+                            </button>
+                            <button
+                                class="csel__option"
+                                role="option"
+                                data-value="digitalocean"
+                            >
+                                Digital Ocean
+                            </button>
+                            <button
+                                class="csel__option"
+                                role="option"
+                                data-value="custom"
+                            >
+                                Custom…
+                            </button>
+                        </div>
                     </div>
+                    <!-- hidden select keeps all existing JS working -->
+                    <select
+                        id="settings-endpoint-preset"
+                        data-csel="settings-endpoint-csel"
+                        style="display: none"
+                    >
+                        <option value="noreproxy">Nore Proxy</option>
+                        <option value="openrouter">OpenRouter</option>
+                        <option value="googleaistudio">Google AI Studio</option>
+                        <option value="openai">OpenAI</option>
+                        <option value="pollinations">Pollinations</option>
+                        <option value="digitalocean">Digital Ocean</option>
+                        <option value="custom">Custom…</option>
+                    </select>
                     <input
                         type="url"
                         id="settings-endpoint"
@@ -689,6 +797,11 @@
                         class="form-input"
                         placeholder="sk-…"
                     />
+                    <p class="form-hint">
+                        🔑 Your key is saved in <strong>localStorage</strong> in
+                        this browser. For maximum security, clear your browser
+                        storage when you're done.
+                    </p>
 
                     <label class="form-label" for="settings-system-prompt"
                         >System Prompt</label
@@ -746,19 +859,108 @@
                 </div>
 
                 <div class="modal__footer">
-                    <button class="btn btn--ghost" id="btn-settings-cancel">
-                        Cancel
+                    <button
+                        class="btn btn--danger"
+                        id="btn-settings-clear-storage"
+                        title="Remove all stored API keys from this browser"
+                    >
+                        Clear API Keys
                     </button>
-                    <button class="btn btn--primary" id="btn-settings-save">
-                        Save Settings
+                    <div class="modal__footer-right">
+                        <button class="btn btn--ghost" id="btn-settings-cancel">
+                            Cancel
+                        </button>
+                        <button class="btn btn--primary" id="btn-settings-save">
+                            Save Settings
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Confirm: Clear API Keys ─────────────────────────────────────── -->
+        <div
+            class="modal-overlay"
+            id="modal-confirm-clear-keys"
+            aria-hidden="true"
+        >
+            <div
+                class="modal modal--sm"
+                role="alertdialog"
+                aria-modal="true"
+                aria-labelledby="confirm-clear-title"
+                aria-describedby="confirm-clear-desc"
+            >
+                <div class="modal__header">
+                    <h2 class="modal__title" id="confirm-clear-title">
+                        Clear API Keys
+                    </h2>
+                    <button class="btn btn--icon" id="btn-confirm-clear-close">
+                        &#10005;
                     </button>
+                </div>
+                <div class="modal__body confirm-modal__body">
+                    <div class="confirm-modal__icon">
+                        <svg
+                            width="28"
+                            height="28"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            xmlns="http://www.w3.org/2000/svg"
+                        >
+                            <path
+                                d="M12 9v4M12 17h.01"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            />
+                            <path
+                                d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            />
+                        </svg>
+                    </div>
+                    <p id="confirm-clear-desc" class="confirm-modal__text">
+                        All stored API keys will be permanently removed from
+                        this browser.
+                        <br /><br />
+                        Your conversations and other settings will not be
+                        affected.
+                    </p>
+                </div>
+                <div class="modal__footer">
+                    <div class="modal__footer-right">
+                        <button
+                            class="btn btn--ghost"
+                            id="btn-confirm-clear-cancel"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            class="btn btn--danger btn--danger-solid"
+                            id="btn-confirm-clear-ok"
+                        >
+                            Clear Keys
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
 
         <div class="toast" id="toast" aria-live="polite"></div>
 
+        <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-        <script src="app.js"></script>
+        <script src="js/storage.js"></script>
+        <script src="js/models.js"></script>
+        <script src="js/conversations.js"></script>
+        <script src="js/messages.js"></script>
+        <script src="js/api.js"></script>
+        <script src="js/settings.js"></script>
+        <script src="js/main.js"></script>
     </body>
 </html>
