@@ -42,6 +42,9 @@ const dom = {
   // Edit Conversation modal
   modalConv: document.getElementById("modal-conversation"),
   modalConvTitle: document.getElementById("modal-conv-title"),
+  convEndpointPreset: document.getElementById("conv-endpoint-preset"),
+  convModeText: document.getElementById("conv-mode-text"),
+  convModeImage: document.getElementById("conv-mode-image"),
   convEndpoint: document.getElementById("conv-endpoint"),
   convApiKey: document.getElementById("conv-api-key"),
   convModel: document.getElementById("conv-model"),
@@ -54,12 +57,17 @@ const dom = {
   btnConvCancel: document.getElementById("btn-conv-cancel"),
   // Settings modal (no model selector here anymore)
   modalSettings: document.getElementById("modal-settings"),
+  settingsEndpointPreset: document.getElementById("settings-endpoint-preset"),
   settingsEndpoint: document.getElementById("settings-endpoint"),
   settingsApiKey: document.getElementById("settings-api-key"),
   settingsSystemPrompt: document.getElementById("settings-system-prompt"),
   settingsTemperature: document.getElementById("settings-temperature"),
   settingsTopP: document.getElementById("settings-top-p"),
   settingsStream: document.getElementById("settings-stream"),
+  // Plus menu
+  btnPlus: document.getElementById("btn-plus"),
+  plusMenu: document.getElementById("plus-menu"),
+  btnGenerateImage: document.getElementById("btn-generate-image"),
   // Context menu (3-dot)
   convContextMenu: document.getElementById("conv-context-menu"),
   ctxRename: document.getElementById("ctx-rename"),
@@ -174,16 +182,15 @@ const storage = {
     return msgs[conversationId] || [];
   },
 
-  addMessage(conversationId, { role, content }) {
+  addMessage(conversationId, msgData) {
     const msgs = lsGet(STORAGE_KEYS.messages) || {};
     if (!msgs[conversationId]) msgs[conversationId] = [];
     const now = new Date().toISOString();
     const msg = {
       id: Date.now(),
       conversation_id: conversationId,
-      role,
-      content,
       created_at: now,
+      ...msgData,
     };
     msgs[conversationId].push(msg);
     lsSet(STORAGE_KEYS.messages, msgs);
@@ -273,9 +280,28 @@ function showToast(message, type = "info") {
   dom.toast.textContent = message;
   dom.toast.className = `toast show${type !== "info" ? ` toast--${type}` : ""}`;
   clearTimeout(toastTimer);
+  const duration = type === "error" ? 8000 : 3000;
   toastTimer = setTimeout(() => {
     dom.toast.classList.remove("show");
-  }, 3000);
+  }, duration);
+}
+
+/**
+ * Extracts a human-readable error message from an API response body.
+ * Handles common formats: { error: "str" }, { error: { message } }, { message }
+ */
+function extractApiError(data, status) {
+  if (data?.error) {
+    if (typeof data.error === "string") return data.error;
+    if (typeof data.error.message === "string") return data.error.message;
+    try {
+      return JSON.stringify(data.error);
+    } catch {
+      return String(data.error);
+    }
+  }
+  if (typeof data?.message === "string") return data.message;
+  return `Request failed (${status})`;
 }
 
 /*  ═══════════════════════════════════════════════════════════════════════════
@@ -301,7 +327,15 @@ const DEFAULT_MODELS = [];
 function loadModels() {
   try {
     const raw = localStorage.getItem(MODELS_KEY);
-    state.models = raw ? JSON.parse(raw) : [...DEFAULT_MODELS];
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      // Backward compat: old format stored plain strings
+      state.models = parsed.map((m) =>
+        typeof m === "string" ? { id: m, outputTypes: ["text"] } : m,
+      );
+    } else {
+      state.models = [...DEFAULT_MODELS];
+    }
   } catch {
     state.models = [...DEFAULT_MODELS];
   }
@@ -314,14 +348,14 @@ function saveModels() {
 function addModel(name) {
   name = name.trim();
   if (!name) return false;
-  if (state.models.includes(name)) return false;
-  state.models.push(name);
+  if (state.models.some((m) => m.id === name)) return false;
+  state.models.push({ id: name, outputTypes: ["text"] });
   saveModels();
   return true;
 }
 
 function removeModel(name) {
-  state.models = state.models.filter((m) => m !== name);
+  state.models = state.models.filter((m) => m.id !== name);
   saveModels();
 }
 
@@ -331,8 +365,12 @@ function removeModel(name) {
 async function fetchModels(endpoint, apiKey) {
   if (!endpoint) return null;
 
-  const base = endpoint.replace(/\/+$/, "");
-  const url = `${base}/models`;
+  // Always fetch from {base}/v1/models.
+  // Strip any suffix that was appended by the mode toggle so the models
+  // URL is correct regardless of the selected text/image mode.
+  let base = endpoint.replace(/\/+$/, "");
+  base = base.replace(/\/v1\/chat\/completions$/, "").replace(/\/image$/, "");
+  const url = `${base}/v1/models`;
 
   try {
     const headers = { "Content-Type": "application/json" };
@@ -343,10 +381,35 @@ async function fetchModels(endpoint, apiKey) {
 
     const data = await res.json();
     const list = Array.isArray(data?.data)
-      ? data.data.map((m) => m.id).filter(Boolean)
+      ? data.data
+          .map((m) => {
+            if (!m.id) return null;
+            // Detect output modalities from all three known API formats:
+            // 1. Pollinations: top-level output_modalities array
+            // 2. OpenRouter:   architecture.output_modalities array
+            // 3. noreproxy / generic: type field ("chat" → text, "image" → image)
+            let outputTypes;
+            if (
+              Array.isArray(m.output_modalities) &&
+              m.output_modalities.length
+            ) {
+              outputTypes = m.output_modalities;
+            } else if (
+              Array.isArray(m.architecture?.output_modalities) &&
+              m.architecture.output_modalities.length
+            ) {
+              outputTypes = m.architecture.output_modalities;
+            } else if (m.type === "image") {
+              outputTypes = ["image"];
+            } else {
+              outputTypes = ["text"]; // default (covers type:"chat" and unknowns)
+            }
+            return { id: m.id, outputTypes };
+          })
+          .filter(Boolean)
       : [];
 
-    return list.length ? list.sort() : null;
+    return list.length ? list.sort((a, b) => a.id.localeCompare(b.id)) : null;
   } catch {
     return null;
   }
@@ -408,13 +471,13 @@ function populateModelSelect(selectEl, selectedValue = "") {
 
   for (const m of state.models) {
     const opt = document.createElement("option");
-    opt.value = m;
-    opt.textContent = m;
-    if (m === selectedValue) opt.selected = true;
+    opt.value = m.id;
+    opt.textContent = m.id;
+    if (m.id === selectedValue) opt.selected = true;
     selectEl.appendChild(opt);
   }
 
-  if (selectedValue && !state.models.includes(selectedValue)) {
+  if (selectedValue && !state.models.some((m) => m.id === selectedValue)) {
     const opt = document.createElement("option");
     opt.value = selectedValue;
     opt.textContent = selectedValue + " (custom)";
@@ -449,6 +512,37 @@ function populateTopbarModelSelect(selectedValue) {
     ═══════════════════════════════════════════════════════════════════════════ */
 const PROVIDER_CONFIG = [
   {
+    key: "claude",
+    name: "Claude",
+    iconUrl: "https://www.google.com/s2/favicons?domain=anthropic.com&sz=32",
+    match: (id) =>
+      id.includes("claude") || id.includes("sonnet") || id.includes("opus"),
+  },
+  {
+    key: "gemini",
+    name: "Gemini",
+    iconUrl:
+      "https://www.google.com/s2/favicons?domain=gemini.google.com&sz=32",
+    match: (id) =>
+      id.includes("gemini") ||
+      id.includes("google") ||
+      id.includes("gemma") ||
+      id.includes("veo") ||
+      id.includes("nanobanana"),
+  },
+  {
+    key: "gpt",
+    name: "GPT",
+    iconUrl: "https://www.google.com/s2/favicons?domain=openai.com&sz=32",
+    match: (id) => id.includes("gpt") || id.includes("openai"),
+  },
+  {
+    key: "x-ai",
+    name: "X-AI",
+    iconUrl: "https://www.google.com/s2/favicons?domain=x.ai&sz=32",
+    match: (id) => id.includes("x-ai") || id.includes("grok"),
+  },
+  {
     key: "deepseek",
     name: "DeepSeek",
     iconUrl: "https://www.google.com/s2/favicons?domain=deepseek.com&sz=32",
@@ -467,30 +561,52 @@ const PROVIDER_CONFIG = [
     match: (id) => id.includes("glm"),
   },
   {
-    key: "gpt",
-    name: "GPT",
-    iconUrl: "https://www.google.com/s2/favicons?domain=openai.com&sz=32",
-    match: (id) => id.includes("gpt"),
-  },
-  {
-    key: "gemini",
-    name: "Gemini",
-    iconUrl:
-      "https://www.google.com/s2/favicons?domain=gemini.google.com&sz=32",
-    match: (id) => id.includes("gemini"),
-  },
-  {
     key: "qwen",
     name: "Qwen",
     iconUrl: "https://www.google.com/s2/favicons?domain=chat.qwen.ai&sz=32",
     match: (id) => id.includes("qwen"),
   },
   {
-    key: "claude",
-    name: "Claude",
-    iconUrl: "https://www.google.com/s2/favicons?domain=anthropic.com&sz=32",
-    match: (id) =>
-      id.includes("claude") || id.includes("sonnet") || id.includes("opus"),
+    key: "mistral",
+    name: "Mistral",
+    iconUrl: "https://www.google.com/s2/favicons?domain=mistral.ai&sz=32",
+    match: (id) => id.includes("mistral"),
+  },
+  {
+    key: "amazon",
+    name: "Amazon",
+    iconUrl: "https://www.google.com/s2/favicons?domain=amazon.com&sz=32",
+    match: (id) => id.includes("amazon") || id.includes("nova"),
+  },
+  {
+    key: "llama",
+    name: "Llama",
+    iconUrl: "https://www.google.com/s2/favicons?domain=meta.com&sz=32",
+    match: (id) => id.includes("llama"),
+  },
+  {
+    key: "minimax",
+    name: "Minimax",
+    iconUrl: "https://www.google.com/s2/favicons?domain=minimax.io&sz=32",
+    match: (id) => id.includes("minimax"),
+  },
+  {
+    key: "xiaomi",
+    name: "Xiaomi",
+    iconUrl: "https://www.google.com/s2/favicons?domain=xiaomi.com&sz=32",
+    match: (id) => id.includes("mimo"),
+  },
+  {
+    key: "bytedance",
+    name: "Bytedance",
+    iconUrl: "https://icons.duckduckgo.com/ip3/bytedance.com.ico",
+    match: (id) => id.includes("seed"),
+  },
+  {
+    key: "free",
+    name: "Free",
+    iconUrl: "https://www.google.com/s2/favicons?domain=openrouter.ai&sz=32",
+    match: (id) => id.includes("free"),
   },
 ];
 
@@ -504,6 +620,7 @@ function detectProvider(modelId) {
 
 // Tracks which filter pill is active while the dropdown is open
 let dropdownActiveFilter = null;
+let dropdownActiveTypeFilter = null; // "text" | "image" | null
 
 /*  ═══════════════════════════════════════════════════════════════════════════
     Custom Model Dropdown
@@ -515,20 +632,65 @@ function renderCustomDropdown(selectedValue, filter = "") {
 
   // Apply text search
   const searchedModels = filter
-    ? state.models.filter((m) => m.toLowerCase().includes(filter.toLowerCase()))
+    ? state.models.filter((m) =>
+        m.id.toLowerCase().includes(filter.toLowerCase()),
+      )
     : state.models;
 
+  // ── Determine which output types exist in the searched list ───────────────
+  const hasTextModels = searchedModels.some(
+    (m) => !m.outputTypes || m.outputTypes.includes("text"),
+  );
+  const hasImageModels = searchedModels.some(
+    (m) => m.outputTypes && m.outputTypes.includes("image"),
+  );
+  const hasMixedTypes = hasTextModels && hasImageModels;
+
+  // Apply type filter on top of search
+  const typeFilteredModels = dropdownActiveTypeFilter
+    ? searchedModels.filter(
+        (m) =>
+          m.outputTypes && m.outputTypes.includes(dropdownActiveTypeFilter),
+      )
+    : searchedModels;
+
   // ── Build filter strip ────────────────────────────────────────────────────
-  // Collect which providers are actually present in the searched list
+  if (filtersEl) filtersEl.innerHTML = "";
+
+  // Type filter pills — built now, appended after provider icons (so margin-left:auto pins it right)
+  let typeWrap = null;
+  if (hasMixedTypes && filtersEl) {
+    typeWrap = document.createElement("div");
+    typeWrap.className = "model-selector__type-filter";
+
+    for (const type of ["text", "image"]) {
+      const typePresent = type === "text" ? hasTextModels : hasImageModels;
+      if (!typePresent) continue;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className =
+        "model-selector__type-btn" +
+        (dropdownActiveTypeFilter === type ? " active" : "");
+      btn.textContent = type.charAt(0).toUpperCase() + type.slice(1);
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        dropdownActiveTypeFilter =
+          dropdownActiveTypeFilter === type ? null : type;
+        renderCustomDropdown(selectedValue, filter);
+      });
+      typeWrap.appendChild(btn);
+    }
+  }
+
+  // ── Provider filter — built from type-filtered list ───────────────────────
   const presentKeys = new Set();
   let hasOthers = false;
-  for (const m of searchedModels) {
-    const p = detectProvider(m);
+  for (const m of typeFilteredModels) {
+    const p = detectProvider(m.id);
     if (p) presentKeys.add(p.key);
     else hasOthers = true;
   }
 
-  if (filtersEl) filtersEl.innerHTML = "";
   const showStrip = filtersEl && (presentKeys.size > 0 || hasOthers);
 
   if (showStrip) {
@@ -571,14 +733,17 @@ function renderCustomDropdown(selectedValue, filter = "") {
     }
   }
 
+  // Append type filter last so margin-left:auto pushes it to the bottom-right
+  if (typeWrap && filtersEl) filtersEl.appendChild(typeWrap);
+
   // ── Apply active provider filter ──────────────────────────────────────────
   const models =
     dropdownActiveFilter === null
-      ? searchedModels
+      ? typeFilteredModels
       : dropdownActiveFilter === "other"
-        ? searchedModels.filter((m) => !detectProvider(m))
-        : searchedModels.filter(
-            (m) => detectProvider(m)?.key === dropdownActiveFilter,
+        ? typeFilteredModels.filter((m) => !detectProvider(m.id))
+        : typeFilteredModels.filter(
+            (m) => detectProvider(m.id)?.key === dropdownActiveFilter,
           );
 
   list.innerHTML = "";
@@ -593,18 +758,29 @@ function renderCustomDropdown(selectedValue, filter = "") {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className =
-      "model-selector__option" + (m === selectedValue ? " selected" : "");
-    btn.dataset.value = m;
+      "model-selector__option" + (m.id === selectedValue ? " selected" : "");
+    btn.dataset.value = m.id;
 
     // Split "provider/model-name" into two visual lines
-    const slashIdx = m.indexOf("/");
-    const providerLabel = slashIdx !== -1 ? m.slice(0, slashIdx) : null;
-    const modelName = slashIdx !== -1 ? m.slice(slashIdx + 1) : m;
+    const slashIdx = m.id.indexOf("/");
+    const providerLabel = slashIdx !== -1 ? m.id.slice(0, slashIdx) : null;
+    const modelName = slashIdx !== -1 ? m.id.slice(slashIdx + 1) : m.id;
 
-    const providerConfig = detectProvider(m);
+    const providerConfig = detectProvider(m.id);
     const iconHtml = providerConfig
       ? `<img class="model-selector__option-icon" src="${providerConfig.iconUrl}" alt="${providerConfig.name}" />`
       : `<span class="model-selector__option-icon-placeholder"></span>`;
+
+    // Output type tags — show all types; only render if there's a mix in the list
+    const outputTypes = m.outputTypes || ["text"];
+    const tagsHtml = hasMixedTypes
+      ? outputTypes
+          .map(
+            (t) =>
+              `<span class="model-selector__tag model-selector__tag--${t}">${t}</span>`,
+          )
+          .join("")
+      : "";
 
     btn.innerHTML = `
       ${iconHtml}
@@ -612,11 +788,12 @@ function renderCustomDropdown(selectedValue, filter = "") {
         ${providerLabel ? `<span class="model-selector__option-provider">${escapeHtml(providerLabel)}</span>` : ""}
         <span class="model-selector__option-name">${escapeHtml(modelName)}</span>
       </span>
+      ${tagsHtml ? `<span class="model-selector__tags">${tagsHtml}</span>` : ""}
       <svg class="model-selector__check" viewBox="0 0 13 13" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path d="M2 7l3 3 6-6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>`;
     btn.addEventListener("click", () => {
-      selectTopbarModel(m);
+      selectTopbarModel(m.id);
       closeCustomDropdown();
     });
     list.appendChild(btn);
@@ -625,6 +802,7 @@ function renderCustomDropdown(selectedValue, filter = "") {
 
 function openCustomDropdown() {
   dropdownActiveFilter = null; // reset filter pill on each open
+  dropdownActiveTypeFilter = null; // reset type filter on each open
   dom.modelSelectorDropdown.classList.add("open");
   dom.modelSelectorTrigger.setAttribute("aria-expanded", "true");
   dom.modelSelectorSearch.value = "";
@@ -896,7 +1074,19 @@ function renderMessages(messages) {
   }
 
   for (const msg of messages) {
-    appendMessageBubble(msg.role, msg.content, msg.created_at, msg.id);
+    const attachments = msg.attachments || [];
+    const imageAtts = attachments.filter((a) => a.type === "image");
+    const textAtts = attachments.filter((a) => a.type === "text");
+    const hasGenImg = attachments.some((a) => a.type === "generate-image");
+    appendMessageBubble(
+      msg.role,
+      msg.content,
+      msg.created_at,
+      msg.id,
+      imageAtts,
+      textAtts,
+      hasGenImg,
+    );
   }
 
   scrollToBottom();
@@ -943,6 +1133,7 @@ function appendMessageBubble(
   messageId = null,
   imageAttachments = [],
   textAttachments = [],
+  hasGenerateImage = false,
 ) {
   const empty = dom.messages.querySelector(".empty-state");
   if (empty) empty.remove();
@@ -960,10 +1151,28 @@ function appendMessageBubble(
         minute: "2-digit",
       });
 
-  let bubbleInner =
-    role === "user"
-      ? `<span style="white-space: pre-wrap">${escapeHtml(content)}</span>`
-      : formatMessageContent(content);
+  let bubbleInner;
+  const _trimmedContent = (content || "").trim();
+  if (
+    role === "assistant" &&
+    _trimmedContent.startsWith("[GENERATED_IMAGE]:")
+  ) {
+    const imgUrl = _trimmedContent.slice("[GENERATED_IMAGE]:".length);
+    bubbleInner = `
+      <div class="message__image-response">
+        <button class="btn--download-image" data-img-url="${escapeHtml(imgUrl)}" title="Download image">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 3v13M6 11l6 6 6-6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M3 20h18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <img class="message__generated-img" src="${escapeHtml(imgUrl)}" alt="Generated image" />
+      </div>`;
+  } else if (role === "user") {
+    bubbleInner = `<span style="white-space: pre-wrap">${escapeHtml(content)}</span>`;
+  } else {
+    bubbleInner = formatMessageContent(content);
+  }
 
   // Prepend any inline images inside the bubble (in-memory only, not persisted)
   if (imageAttachments.length > 0 && role === "user") {
@@ -980,8 +1189,8 @@ function appendMessageBubble(
 
   // Build text file chips as a separate row above the bubble (in-memory only, not persisted)
   let attachmentsHtml = "";
-  if (textAttachments.length > 0 && role === "user") {
-    const chipsHtml = textAttachments
+  if ((textAttachments.length > 0 || hasGenerateImage) && role === "user") {
+    const fileChipsHtml = textAttachments
       .map(
         (a) =>
           `<div class="message__file-chip">
@@ -990,7 +1199,13 @@ function appendMessageBubble(
           </div>`,
       )
       .join("");
-    attachmentsHtml = `<div class="message__attachments">${chipsHtml}</div>`;
+    const genImgChip = hasGenerateImage
+      ? `<div class="message__file-chip message__file-chip--generate-image">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" stroke-width="1.8"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="M21 15.5l-5.5-5.5L5 21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Generate Image</span>
+        </div>`
+      : "";
+    attachmentsHtml = `<div class="message__attachments">${genImgChip}${fileChipsHtml}</div>`;
   }
 
   let html = `
@@ -1163,7 +1378,21 @@ async function openEditConversationModal(id) {
     const conv = storage.getConversation(id);
     if (!conv) throw new Error("Conversation not found");
 
-    dom.convEndpoint.value = conv.endpoint || "";
+    const {
+      preset: convPreset,
+      mode: convMode,
+      customUrl: convCustomUrl,
+    } = parseEndpointPreset(conv.endpoint || "");
+    applyEndpointUi(
+      {
+        presetEl: dom.convEndpointPreset,
+        customEl: dom.convEndpoint,
+        modeBtns: [dom.convModeText, dom.convModeImage],
+      },
+      convPreset,
+      convMode,
+      convCustomUrl,
+    );
     dom.convApiKey.value = conv.api_key || "";
     dom.convTitle.value = conv.title || "";
     dom.convSystemPrompt.value = conv.system_prompt || "";
@@ -1199,7 +1428,15 @@ async function openEditConversationModal(id) {
 }
 
 async function saveConversationModal() {
-  const endpoint = dom.convEndpoint.value.trim();
+  const convActiveMode =
+    [dom.convModeText, dom.convModeImage].find((b) =>
+      b.classList.contains("mode-btn--active"),
+    )?.dataset.mode || "text";
+  const endpoint = buildEndpointUrl(
+    dom.convEndpointPreset.value,
+    convActiveMode,
+    dom.convEndpoint.value,
+  );
   const model = dom.convModel.value.trim();
   const api_key = dom.convApiKey.value.trim();
   const title = dom.convTitle.value.trim() || "New Conversation";
@@ -1212,7 +1449,11 @@ async function saveConversationModal() {
 
   if (!endpoint) {
     showToast("API Endpoint is required", "error");
-    dom.convEndpoint.focus();
+    if (dom.convEndpointPreset.value === "custom") {
+      dom.convEndpoint.focus();
+    } else {
+      dom.convEndpointPreset.focus();
+    }
     return;
   }
   if (!model) {
@@ -1281,6 +1522,7 @@ async function dispatchSend(content, attachments = []) {
   state.isLoading = true;
   disableInput();
 
+  const hasGenerateImage = attachments.some((a) => a.type === "generate-image");
   const imageAttachments = attachments.filter((a) => a.type === "image");
   const textAttachments = attachments.filter((a) => a.type === "text");
   const userWrapper = appendMessageBubble(
@@ -1290,12 +1532,15 @@ async function dispatchSend(content, attachments = []) {
     null,
     imageAttachments,
     textAttachments,
+    hasGenerateImage,
   );
   appendThinkingBubble();
   scrollToBottom();
 
   try {
-    if (useStreaming) {
+    if (hasGenerateImage) {
+      await sendImageGeneration(content, userWrapper, attachments);
+    } else if (useStreaming) {
       await sendMessageStreaming(content, userWrapper, attachments);
     } else {
       await sendMessageBlocking(content, userWrapper, attachments);
@@ -1305,7 +1550,8 @@ async function dispatchSend(content, attachments = []) {
     removeThinkingBubble();
     const bubbles = dom.messages.querySelectorAll(".message--user");
     if (bubbles.length) bubbles[bubbles.length - 1].remove();
-    showToast("Failed to send message: " + err.message, "error");
+    const errMsg = err instanceof Error ? err.message : String(err);
+    showToast("Failed: " + errMsg, "error");
   } finally {
     state.isLoading = false;
     enableInput();
@@ -1321,11 +1567,11 @@ async function resendFromMessage(messageId) {
   if (idx === -1) return;
 
   const msg = messages[idx];
-  let userContent;
+  let userMessage;
   let deleteFromIdx;
 
   if (msg.role === "user") {
-    userContent = msg.content;
+    userMessage = msg;
     deleteFromIdx = idx;
   } else if (msg.role === "assistant") {
     // Walk back to find the preceding user message
@@ -1337,15 +1583,16 @@ async function resendFromMessage(messageId) {
       }
     }
     if (prevUserIdx === -1) return;
-    userContent = messages[prevUserIdx].content;
+    userMessage = messages[prevUserIdx];
     deleteFromIdx = prevUserIdx;
   } else {
     return;
   }
 
+  const storedAttachments = userMessage.attachments || [];
   storage.deleteMessagesFrom(state.activeConversationId, deleteFromIdx);
   renderMessages(storage.getMessages(state.activeConversationId));
-  await dispatchSend(userContent);
+  await dispatchSend(userMessage.content, storedAttachments);
 }
 
 /*  ═══════════════════════════════════════════════════════════════════════════
@@ -1552,11 +1799,13 @@ function renderAttachmentPreview() {
   preview.innerHTML = state.pendingAttachments
     .map(
       (att, i) => `
-        <div class="attachment-chip" data-index="${i}">
+        <div class="attachment-chip${att.type === "generate-image" ? " attachment-chip--generate-image" : ""}" data-index="${i}">
           ${
             att.type === "image"
               ? `<img class="attachment-chip__thumb" src="${att.dataUrl}" alt="${escapeHtml(att.name)}" />`
-              : `<svg class="attachment-chip__icon" width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 1H3a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V5L9 1z" stroke="currentColor" stroke-width="1.5"/><path d="M9 1v4h4" stroke="currentColor" stroke-width="1.5"/></svg>`
+              : att.type === "generate-image"
+                ? `<svg class="attachment-chip__icon" width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" stroke-width="1.8"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="M21 15.5l-5.5-5.5L5 21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+                : `<svg class="attachment-chip__icon" width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 1H3a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V5L9 1z" stroke="currentColor" stroke-width="1.5"/><path d="M9 1v4h4" stroke="currentColor" stroke-width="1.5"/></svg>`
           }
           <span class="attachment-chip__name">${escapeHtml(att.name)}</span>
           <button class="attachment-chip__remove" data-index="${i}" title="Remove">&times;</button>
@@ -1573,9 +1822,13 @@ async function sendMessageBlocking(
   const conv = storage.getConversation(state.activeConversationId);
   if (!conv) throw new Error("Conversation not found");
 
+  const imageAttachments = attachments.filter((a) => a.type === "image");
+  const textAttachments = attachments.filter((a) => a.type === "text");
+
   const userMsg = storage.addMessage(state.activeConversationId, {
     role: "user",
     content,
+    attachments: attachments.length > 0 ? attachments : undefined,
   });
   if (userWrapper) addMessageActions(userWrapper, "user", userMsg.id);
 
@@ -1588,8 +1841,6 @@ async function sendMessageBlocking(
     });
   }
 
-  const imageAttachments = attachments.filter((a) => a.type === "image");
-  const textAttachments = attachments.filter((a) => a.type === "text");
   for (let i = 0; i < history.length; i++) {
     const msg = history[i];
     // Last user message: inject text file contents + image vision parts
@@ -1621,8 +1872,10 @@ async function sendMessageBlocking(
     }
   }
 
-  const baseUrl = conv.endpoint.replace(/\/+$/, "");
-  const url = `${baseUrl}/chat/completions`;
+  const _epBlocking = conv.endpoint.replace(/\/+$/, "");
+  const url = _epBlocking.endsWith("/chat/completions")
+    ? _epBlocking
+    : `${_epBlocking}/chat/completions`;
   const headers = { "Content-Type": "application/json" };
   if (conv.api_key && conv.api_key.trim()) {
     headers["Authorization"] = `Bearer ${conv.api_key.trim()}`;
@@ -1645,8 +1898,14 @@ async function sendMessageBlocking(
   });
 
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`LLM API error ${res.status}: ${text}`);
+    const errText = await res.text();
+    let errMsg = errText;
+    try {
+      errMsg = extractApiError(JSON.parse(errText), res.status);
+    } catch {
+      /* use raw text */
+    }
+    throw new Error(errMsg || `LLM API error ${res.status}`);
   }
 
   const data = await res.json();
@@ -1668,6 +1927,116 @@ async function sendMessageBlocking(
   scrollToBottom();
 }
 
+async function sendImageGeneration(content, userWrapper, attachments = []) {
+  const conv = storage.getConversation(state.activeConversationId);
+  if (!conv) throw new Error("Conversation not found");
+
+  const userMsg = storage.addMessage(state.activeConversationId, {
+    role: "user",
+    content,
+    attachments: attachments.length > 0 ? attachments : undefined,
+  });
+  if (userWrapper) addMessageActions(userWrapper, "user", userMsg.id);
+
+  let imageUrl = null;
+  const endpoint = (conv.endpoint || "").toLowerCase();
+  const isPollinations = endpoint.includes("pollinations");
+
+  if (isPollinations) {
+    // Strip the path suffix so we get just the base URL, e.g. https://gen.pollinations.ai
+    const pollinationsBase = conv.endpoint
+      .replace(/\/+$/, "")
+      .replace(/\/v1\/chat\/completions$/, "")
+      .replace(/\/image$/, "");
+
+    let promptUrl = `${pollinationsBase}/image/${encodeURIComponent(content)}`;
+    if (conv.model && conv.model.trim()) {
+      promptUrl += `?model=${encodeURIComponent(conv.model.trim())}`;
+    }
+
+    const imgHeaders = {};
+    if (conv.api_key && conv.api_key.trim()) {
+      imgHeaders["Authorization"] = `Bearer ${conv.api_key.trim()}`;
+    }
+
+    const imgRes = await fetch(promptUrl, { headers: imgHeaders });
+    if (!imgRes.ok) {
+      const errText = await imgRes.text();
+      let errMsg = errText;
+      try {
+        errMsg = extractApiError(JSON.parse(errText), imgRes.status);
+      } catch {
+        /* use raw text */
+      }
+      throw new Error(
+        errMsg || `Pollinations image generation failed (${imgRes.status})`,
+      );
+    }
+
+    const blob = await imgRes.blob();
+    // Convert to data URL so it persists in localStorage across page reloads
+    imageUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } else {
+    // OpenRouter / other: POST to chat completions with modalities:["image"]
+    const _epImg = conv.endpoint.replace(/\/+$/, "");
+    const url = _epImg.endsWith("/chat/completions")
+      ? _epImg
+      : `${_epImg}/chat/completions`;
+    const headers = { "Content-Type": "application/json" };
+    if (conv.api_key && conv.api_key.trim()) {
+      headers["Authorization"] = `Bearer ${conv.api_key.trim()}`;
+    }
+    const reqBody = {
+      model: conv.model,
+      messages: [{ role: "user", content }],
+      modalities: ["image"],
+      stream: false,
+    };
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(reqBody),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      let errMsg = errText;
+      try {
+        errMsg = extractApiError(JSON.parse(errText), res.status);
+      } catch {
+        /* use raw text */
+      }
+      throw new Error(errMsg || `Image generation API error ${res.status}`);
+    }
+    const data = await res.json();
+    const images = data?.choices?.[0]?.message?.images;
+    if (images && images.length > 0) {
+      imageUrl = images[0].image_url?.url;
+    }
+    if (!imageUrl) throw new Error("No image returned by the model");
+  }
+
+  const storedContent = `[GENERATED_IMAGE]:${imageUrl}`;
+  const assistantMsg = storage.addMessage(state.activeConversationId, {
+    role: "assistant",
+    content: storedContent,
+  });
+
+  removeThinkingBubble();
+  const wrapper = appendMessageBubble(
+    "assistant",
+    storedContent,
+    assistantMsg.created_at,
+    assistantMsg.id,
+  );
+  addMessageActions(wrapper, "assistant", assistantMsg.id);
+  scrollToBottom();
+}
+
 async function sendMessageStreaming(
   content,
   userWrapper = null,
@@ -1676,9 +2045,13 @@ async function sendMessageStreaming(
   const conv = storage.getConversation(state.activeConversationId);
   if (!conv) throw new Error("Conversation not found");
 
+  const imageAttachments = attachments.filter((a) => a.type === "image");
+  const textAttachments = attachments.filter((a) => a.type === "text");
+
   const userMsg = storage.addMessage(state.activeConversationId, {
     role: "user",
     content,
+    attachments: attachments.length > 0 ? attachments : undefined,
   });
   if (userWrapper) addMessageActions(userWrapper, "user", userMsg.id);
 
@@ -1691,8 +2064,6 @@ async function sendMessageStreaming(
     });
   }
 
-  const imageAttachments = attachments.filter((a) => a.type === "image");
-  const textAttachments = attachments.filter((a) => a.type === "text");
   for (let i = 0; i < history.length; i++) {
     const msg = history[i];
     // Last user message: inject text file contents + image vision parts
@@ -1729,8 +2100,10 @@ async function sendMessageStreaming(
     headers["Authorization"] = `Bearer ${conv.api_key.trim()}`;
   }
 
-  const baseUrl = conv.endpoint.replace(/\/+$/, "");
-  const url = `${baseUrl}/chat/completions`;
+  const _epStreaming = conv.endpoint.replace(/\/+$/, "");
+  const url = _epStreaming.endsWith("/chat/completions")
+    ? _epStreaming
+    : `${_epStreaming}/chat/completions`;
 
   return new Promise((resolve, reject) => {
     const reqBody = {
@@ -1750,8 +2123,14 @@ async function sendMessageStreaming(
     })
       .then(async (res) => {
         if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data?.error || `Request failed (${res.status})`);
+          const errText = await res.text();
+          let errMsg = errText;
+          try {
+            errMsg = extractApiError(JSON.parse(errText), res.status);
+          } catch {
+            /* use raw text */
+          }
+          throw new Error(errMsg || `Request failed (${res.status})`);
         }
 
         removeThinkingBubble();
@@ -1830,10 +2209,115 @@ async function loadSettings() {
 }
 
 /*  ═══════════════════════════════════════════════════════════════════════════
+    Endpoint Preset / Mode-toggle helpers
+    ═══════════════════════════════════════════════════════════════════════════ */
+
+const ENDPOINT_BASES = {
+  openrouter: "https://openrouter.ai/api",
+  pollinations: "https://gen.pollinations.ai",
+  noreproxy: "https://llm.norenaboi.com",
+};
+
+const MODE_SUFFIXES = {
+  text: "/v1/chat/completions",
+  image: "/image",
+};
+
+/**
+ * Given a raw stored endpoint URL, figure out which preset and mode it
+ * corresponds to, and return { preset, mode, customUrl }.
+ */
+function parseEndpointPreset(url) {
+  if (!url) return { preset: "openrouter", mode: "text", customUrl: "" };
+  for (const [preset, base] of Object.entries(ENDPOINT_BASES)) {
+    for (const [mode, suffix] of Object.entries(MODE_SUFFIXES)) {
+      if (url === base + suffix) return { preset, mode, customUrl: "" };
+    }
+  }
+  // Didn't match any known pattern — treat as custom
+  return { preset: "custom", mode: "text", customUrl: url };
+}
+
+/**
+ * Build the final URL from a preset+mode (or from a custom input value).
+ */
+function buildEndpointUrl(preset, mode, customUrl) {
+  if (preset === "custom") return customUrl.trim();
+  return (ENDPOINT_BASES[preset] || "") + (MODE_SUFFIXES[mode] || "");
+}
+
+/**
+ * Apply preset+mode state to the UI controls of one modal.
+ * @param {object} els  - { presetEl, customEl, modeBtns: [textBtn, imageBtn] }
+ * @param {string} preset
+ * @param {string} mode
+ * @param {string} customUrl
+ */
+function applyEndpointUi(els, preset, mode, customUrl) {
+  const { presetEl, customEl, modeBtns } = els;
+  presetEl.value = preset;
+  customEl.style.display = preset === "custom" ? "" : "none";
+  if (preset === "custom") customEl.value = customUrl;
+  modeBtns.forEach((btn) => {
+    btn.classList.toggle("mode-btn--active", btn.dataset.mode === mode);
+  });
+}
+
+/**
+ * Wire up the interactive behaviour for one modal's endpoint controls.
+ * @param {object} els  - { presetEl, customEl, modeBtns: [textBtn, imageBtn] }
+ * @param {Function} onChangeCallback  - called whenever the effective URL changes
+ */
+function initEndpointControls(els, onChangeCallback) {
+  const { presetEl, customEl, modeBtns } = els;
+
+  function currentMode() {
+    const active = modeBtns.find((b) =>
+      b.classList.contains("mode-btn--active"),
+    );
+    return active ? active.dataset.mode : "text";
+  }
+
+  presetEl.addEventListener("change", () => {
+    const isCustom = presetEl.value === "custom";
+    customEl.style.display = isCustom ? "" : "none";
+    if (isCustom) {
+      customEl.focus();
+    } else {
+      onChangeCallback();
+    }
+  });
+
+  customEl.addEventListener("change", () => {
+    if (presetEl.value === "custom") onChangeCallback();
+  });
+
+  modeBtns.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      modeBtns.forEach((b) => b.classList.remove("mode-btn--active"));
+      btn.classList.add("mode-btn--active");
+      onChangeCallback();
+    });
+  });
+}
+
+/*  ═══════════════════════════════════════════════════════════════════════════
     Settings Modal  (no model selector — model is in topbar)
     ═══════════════════════════════════════════════════════════════════════════ */
 function openSettingsModal() {
-  dom.settingsEndpoint.value = state.settings.endpoint || "";
+  const { preset, mode, customUrl } = parseEndpointPreset(
+    state.settings.endpoint || "",
+  );
+  applyEndpointUi(
+    {
+      presetEl: dom.settingsEndpointPreset,
+      customEl: dom.settingsEndpoint,
+      modeBtns: [],
+    },
+    preset,
+    mode,
+    customUrl,
+  );
   dom.settingsApiKey.value = state.settings.api_key || "";
   dom.settingsSystemPrompt.value = state.settings.system_prompt || "";
   dom.settingsTemperature.value =
@@ -1851,7 +2335,12 @@ function openSettingsModal() {
 }
 
 async function saveSettingsModal() {
-  const endpoint = dom.settingsEndpoint.value.trim();
+  const activeMode = "text";
+  const endpoint = buildEndpointUrl(
+    dom.settingsEndpointPreset.value,
+    activeMode,
+    dom.settingsEndpoint.value,
+  );
   const api_key = dom.settingsApiKey.value.trim();
   const system_prompt = dom.settingsSystemPrompt.value.trim();
   const temperatureRaw = dom.settingsTemperature.value;
@@ -1895,12 +2384,14 @@ function enableInput() {
   dom.messageInput.disabled = false;
   dom.btnSend.disabled = false;
   if (dom.btnUpload) dom.btnUpload.disabled = false;
+  if (dom.btnPlus) dom.btnPlus.disabled = false;
 }
 
 function disableInput() {
   dom.messageInput.disabled = true;
   dom.btnSend.disabled = true;
   if (dom.btnUpload) dom.btnUpload.disabled = true;
+  if (dom.btnPlus) dom.btnPlus.disabled = true;
 }
 
 function resetTextareaHeight() {
@@ -1953,6 +2444,28 @@ function formatMessageContent(content) {
     breaks: true,
     gfm: true,
   });
+}
+
+async function downloadGeneratedImage(url) {
+  try {
+    const res = await fetch(url);
+    const blob = await res.blob();
+    const ext = blob.type.includes("png")
+      ? "png"
+      : blob.type.includes("webp")
+        ? "webp"
+        : "jpg";
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = `generated-image.${ext}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+  } catch {
+    window.open(url, "_blank");
+  }
 }
 
 /*  ═══════════════════════════════════════════════════════════════════════════
@@ -2029,29 +2542,16 @@ function bindEvents() {
     }
   });
 
-  // ── Topbar endpoint/key: when settings endpoint changes, refresh topbar models
-  dom.settingsEndpoint.addEventListener("change", async () => {
-    const ep = dom.settingsEndpoint.value.trim();
-    if (!ep || state.activeConversationId) return;
-    const currentModel = dom.topbarModel.value;
-    await fetchAndPopulateModels(
-      ep,
-      dom.settingsApiKey.value.trim(),
-      dom.topbarModel,
-      currentModel,
-    );
-  });
-  dom.settingsApiKey.addEventListener("change", async () => {
-    const ep = dom.settingsEndpoint.value.trim();
-    if (!ep || state.activeConversationId) return;
-    const currentModel = dom.topbarModel.value;
-    await fetchAndPopulateModels(
-      ep,
-      dom.settingsApiKey.value.trim(),
-      dom.topbarModel,
-      currentModel,
-    );
-  });
+  // ── Settings modal: wire endpoint preset + mode toggle ────
+  // No live model-fetch here — models are refreshed on Save Settings.
+  initEndpointControls(
+    {
+      presetEl: dom.settingsEndpointPreset,
+      customEl: dom.settingsEndpoint,
+      modeBtns: [],
+    },
+    () => {},
+  );
 
   // ── Edit Conversation modal ────────────────────────────────
   dom.btnConvSave.addEventListener("click", saveConversationModal);
@@ -2062,9 +2562,17 @@ function bindEvents() {
     .getElementById("btn-close-conv-modal")
     .addEventListener("click", () => closeModal(dom.modalConv));
 
-  // Re-fetch models when conv modal endpoint/key changes
+  // Re-fetch models when conv modal endpoint preset / mode / key changes
   async function onConvEndpointOrKeyChange() {
-    const ep = dom.convEndpoint.value.trim();
+    const activeMode =
+      [dom.convModeText, dom.convModeImage].find((b) =>
+        b.classList.contains("mode-btn--active"),
+      )?.dataset.mode || "text";
+    const ep = buildEndpointUrl(
+      dom.convEndpointPreset.value,
+      activeMode,
+      dom.convEndpoint.value,
+    );
     if (!ep) return;
     const currentModel = dom.convModel.value;
     await fetchAndPopulateModels(
@@ -2074,7 +2582,14 @@ function bindEvents() {
       currentModel,
     );
   }
-  dom.convEndpoint.addEventListener("change", onConvEndpointOrKeyChange);
+  initEndpointControls(
+    {
+      presetEl: dom.convEndpointPreset,
+      customEl: dom.convEndpoint,
+      modeBtns: [dom.convModeText, dom.convModeImage],
+    },
+    onConvEndpointOrKeyChange,
+  );
   dom.convApiKey.addEventListener("change", onConvEndpointOrKeyChange);
 
   // ── Settings modal ─────────────────────────────────────────
@@ -2119,6 +2634,16 @@ function bindEvents() {
     ) {
       closeCustomDropdown();
     }
+    // Close plus menu when clicking outside
+    if (
+      dom.plusMenu &&
+      dom.plusMenu.classList.contains("open") &&
+      !dom.plusMenu.contains(e.target) &&
+      e.target !== dom.btnPlus &&
+      !dom.btnPlus.contains(e.target)
+    ) {
+      closePlusMenu();
+    }
   });
 
   // Close modals on overlay click
@@ -2136,6 +2661,7 @@ function bindEvents() {
       closeModal(dom.modalSettings);
       closeConvContextMenu();
       closeCustomDropdown();
+      closePlusMenu();
     }
   });
 
@@ -2182,7 +2708,53 @@ function bindEvents() {
       if (wrapper) deleteMessage(wrapper.dataset.messageId);
       return;
     }
+
+    // Download generated image
+    const dlBtn = e.target.closest(".btn--download-image");
+    if (dlBtn) {
+      const imgUrl = dlBtn.dataset.imgUrl;
+      if (imgUrl) downloadGeneratedImage(imgUrl);
+      return;
+    }
   });
+
+  // ── Plus menu (More options) ───────────────────────────────────────
+  function openPlusMenu() {
+    dom.plusMenu.classList.add("open");
+    dom.plusMenu.setAttribute("aria-hidden", "false");
+    dom.btnPlus.classList.add("active");
+  }
+  function closePlusMenu() {
+    dom.plusMenu.classList.remove("open");
+    dom.plusMenu.setAttribute("aria-hidden", "true");
+    dom.btnPlus.classList.remove("active");
+  }
+
+  if (dom.btnPlus) {
+    dom.btnPlus.addEventListener("click", (e) => {
+      e.stopPropagation();
+      dom.plusMenu.classList.contains("open")
+        ? closePlusMenu()
+        : openPlusMenu();
+    });
+  }
+
+  if (dom.btnGenerateImage) {
+    dom.btnGenerateImage.addEventListener("click", () => {
+      closePlusMenu();
+      // Only add one generate-image chip at a time
+      const alreadyAdded = state.pendingAttachments.some(
+        (a) => a.type === "generate-image",
+      );
+      if (!alreadyAdded) {
+        state.pendingAttachments.push({
+          type: "generate-image",
+          name: "Generate Image",
+        });
+        renderAttachmentPreview();
+      }
+    });
+  }
 
   // ── File upload ──────────────────────────────────────────────
   if (dom.btnUpload) {
