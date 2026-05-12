@@ -209,6 +209,29 @@
     opacity: 1;
 }
 
+/* Stop button — shown in place of send while loading */
+.btn--stop {
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    margin: 0 6px 6px 0;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--clr-danger);
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition:
+        background var(--transition),
+        opacity var(--transition);
+}
+.btn--stop:hover {
+    background: var(--clr-danger-dark);
+}
+
 /* ── Theme toggle ─────────────────────────────────────────── */
 .btn--theme-toggle {
     display: inline-flex;

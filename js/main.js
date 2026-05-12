@@ -10,6 +10,7 @@ const state = {
   models: [],
   contextMenuConvId: null, // which conv the 3-dot menu is open for
   pendingAttachments: [], // { type: 'image'|'text', name, mimeType, dataUrl } — in-memory only
+  abortController: null,
 };
 
 /*  ═══════════════════════════════════════════════════════════════════════════
@@ -36,6 +37,7 @@ const dom = {
   // Input bar
   messageInput: document.getElementById("message-input"),
   btnSend: document.getElementById("btn-send"),
+  btnStop: document.getElementById("btn-stop"),
   btnUpload: document.getElementById("btn-attach-file"),
   fileUploadInput: document.getElementById("file-upload-input"),
   attachmentPreview: document.getElementById("attachment-preview"),
@@ -451,7 +453,9 @@ async function dispatchSend(content, attachments = []) {
     activeConv?.stream === "true" || activeConv?.stream === true;
 
   state.isLoading = true;
+  state.abortController = new AbortController();
   disableInput();
+  showStopButton();
 
   const hasGenerateImage = attachments.some((a) => a.type === "generate-image");
   const imageAttachments = attachments.filter((a) => a.type === "image");
@@ -465,26 +469,67 @@ async function dispatchSend(content, attachments = []) {
     textAttachments,
     hasGenerateImage,
   );
+
+  // Save user message to storage before the fetch
+  const userMsg = storage.addMessage(state.activeConversationId, {
+    role: "user",
+    content,
+    attachments: attachments.length > 0 ? attachments : undefined,
+  });
+  addMessageActions(userWrapper, "user", userMsg.id);
+
   appendThinkingBubble();
   scrollToBottom();
 
   try {
     if (hasGenerateImage) {
-      await sendImageGeneration(content, userWrapper, attachments);
+      await sendImageGeneration(content, userWrapper, attachments, userMsg.id);
     } else if (useStreaming) {
-      await sendMessageStreaming(content, userWrapper, attachments);
+      await sendMessageStreaming(content, userWrapper, attachments, userMsg.id);
     } else {
-      await sendMessageBlocking(content, userWrapper, attachments);
+      await sendMessageBlocking(content, userWrapper, attachments, userMsg.id);
     }
     loadConversations();
   } catch (err) {
     removeThinkingBubble();
-    const bubbles = dom.messages.querySelectorAll(".message--user");
-    if (bubbles.length) bubbles[bubbles.length - 1].remove();
-    const errMsg = err instanceof Error ? err.message : String(err);
-    showToast("Failed: " + errMsg, "error");
+    if (err.name === "AbortError") {
+      showToast("Generation stopped.", "info");
+    } else {
+      if (err.status == 401) {
+        showToast(
+          "Unauthorized. The API key is missing or not valid.",
+          "error",
+        );
+        return;
+      } else if (err.status == 403) {
+        showToast(
+          "Forbidden. You do not have permission to access this resource.",
+          "error",
+        );
+        return;
+      } else if (err.status == 404) {
+        showToast("Not found. The requested resource does not exist.", "error");
+        return;
+      } else if (err.status == 429) {
+        showToast(
+          "Too many requests. You have exceeded the rate limit.",
+          "error",
+        );
+        return;
+      } else if (err.status == 500) {
+        showToast(
+          "Internal server error. Something went wrong on the server.",
+          "error",
+        );
+        return;
+      }
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (errMsg == "") showToast("Failed: " + errMsg, "error");
+    }
   } finally {
     state.isLoading = false;
+    state.abortController = null;
+    hideStopButton();
     enableInput();
     dom.messageInput.focus();
   }
@@ -523,6 +568,16 @@ function disableInput() {
   dom.messageInput.disabled = true;
   dom.btnSend.disabled = true;
   if (dom.btnPlus) dom.btnPlus.disabled = true;
+}
+
+function showStopButton() {
+  dom.btnSend.style.display = "none";
+  dom.btnStop.style.display = "flex";
+}
+
+function hideStopButton() {
+  dom.btnStop.style.display = "none";
+  dom.btnSend.style.display = "flex";
 }
 
 function resetTextareaHeight() {
@@ -864,6 +919,9 @@ function bindEvents() {
 
   // ── Send message ───────────────────────────────────────────────────
   dom.btnSend.addEventListener("click", sendMessage);
+  dom.btnStop.addEventListener("click", () => {
+    if (state.abortController) state.abortController.abort();
+  });
   dom.messageInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();

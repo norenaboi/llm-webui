@@ -2,19 +2,13 @@ async function sendMessageBlocking(
   content,
   userWrapper = null,
   attachments = [],
+  userMsgId,
 ) {
   const conv = storage.getConversation(state.activeConversationId);
   if (!conv) throw new Error("Conversation not found");
 
   const imageAttachments = attachments.filter((a) => a.type === "image");
   const textAttachments = attachments.filter((a) => a.type === "text");
-
-  const userMsg = storage.addMessage(state.activeConversationId, {
-    role: "user",
-    content,
-    attachments: attachments.length > 0 ? attachments : undefined,
-  });
-  if (userWrapper) addMessageActions(userWrapper, "user", userMsg.id);
 
   const history = storage.getMessages(state.activeConversationId);
   const llmMessages = [];
@@ -78,6 +72,7 @@ async function sendMessageBlocking(
     method: "POST",
     headers,
     body: JSON.stringify(reqBody),
+    signal: state.abortController?.signal,
   });
 
   if (!res.ok) {
@@ -110,16 +105,14 @@ async function sendMessageBlocking(
   scrollToBottom();
 }
 
-async function sendImageGeneration(content, userWrapper, attachments = []) {
+async function sendImageGeneration(
+  content,
+  userWrapper,
+  attachments = [],
+  userMsgId,
+) {
   const conv = storage.getConversation(state.activeConversationId);
   if (!conv) throw new Error("Conversation not found");
-
-  const userMsg = storage.addMessage(state.activeConversationId, {
-    role: "user",
-    content,
-    attachments: attachments.length > 0 ? attachments : undefined,
-  });
-  if (userWrapper) addMessageActions(userWrapper, "user", userMsg.id);
 
   let imageUrl = null;
   const endpoint = (conv.endpoint || "").toLowerCase();
@@ -141,7 +134,10 @@ async function sendImageGeneration(content, userWrapper, attachments = []) {
     const _keyImg = resolveApiKey(conv);
     if (_keyImg) imgHeaders["Authorization"] = `Bearer ${_keyImg}`;
 
-    const imgRes = await fetch(promptUrl, { headers: imgHeaders });
+    const imgRes = await fetch(promptUrl, {
+      headers: imgHeaders,
+      signal: state.abortController?.signal,
+    });
     if (!imgRes.ok) {
       const errText = await imgRes.text();
       let errMsg = errText;
@@ -182,6 +178,7 @@ async function sendImageGeneration(content, userWrapper, attachments = []) {
       method: "POST",
       headers,
       body: JSON.stringify(reqBody),
+      signal: state.abortController?.signal,
     });
     if (!res.ok) {
       const errText = await res.text();
@@ -222,19 +219,13 @@ async function sendMessageStreaming(
   content,
   userWrapper = null,
   attachments = [],
+  userMsgId,
 ) {
   const conv = storage.getConversation(state.activeConversationId);
   if (!conv) throw new Error("Conversation not found");
 
   const imageAttachments = attachments.filter((a) => a.type === "image");
   const textAttachments = attachments.filter((a) => a.type === "text");
-
-  const userMsg = storage.addMessage(state.activeConversationId, {
-    role: "user",
-    content,
-    attachments: attachments.length > 0 ? attachments : undefined,
-  });
-  if (userWrapper) addMessageActions(userWrapper, "user", userMsg.id);
 
   const history = storage.getMessages(state.activeConversationId);
   const llmMessages = [];
@@ -285,85 +276,97 @@ async function sendMessageStreaming(
     ? _epStreaming
     : `${_epStreaming}/chat/completions`;
 
-  return new Promise((resolve, reject) => {
-    const reqBody = {
-      model: conv.model,
-      messages: llmMessages,
-      stream: true,
-    };
-    const _temp = parseFloat(conv.temperature);
-    if (!isNaN(_temp)) reqBody.temperature = _temp;
-    const _topP = parseFloat(conv.top_p);
-    if (!isNaN(_topP)) reqBody.top_p = _topP;
+  const reqBody = {
+    model: conv.model,
+    messages: llmMessages,
+    stream: true,
+  };
+  const _temp = parseFloat(conv.temperature);
+  if (!isNaN(_temp)) reqBody.temperature = _temp;
+  const _topP = parseFloat(conv.top_p);
+  if (!isNaN(_topP)) reqBody.top_p = _topP;
 
-    fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(reqBody),
-    })
-      .then(async (res) => {
-        if (!res.ok) {
-          const errText = await res.text();
-          let errMsg = errText;
-          try {
-            errMsg = extractApiError(JSON.parse(errText), res.status);
-          } catch {
-            /* use raw text */
-          }
-          throw new Error(errMsg || `Request failed (${res.status})`);
-        }
-
-        removeThinkingBubble();
-        const wrapper = appendMessageBubble("assistant", "");
-        const bubble = wrapper.querySelector(".message__bubble");
-        let fullContent = "";
-
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder("utf-8");
-        let buffer = "";
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop();
-
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed.startsWith("data:")) continue;
-
-            const raw = trimmed.slice(5).trim();
-            if (raw === "[DONE]") break;
-
-            let parsed;
-            try {
-              parsed = JSON.parse(raw);
-            } catch {
-              continue;
-            }
-
-            const token = parsed?.choices?.[0]?.delta?.content;
-            if (token) {
-              fullContent += token;
-              bubble.innerHTML = formatMessageContent(fullContent);
-              scrollToBottom();
-            }
-          }
-        }
-
-        if (fullContent.trim()) {
-          const savedMsg = storage.addMessage(state.activeConversationId, {
-            role: "assistant",
-            content: fullContent,
-          });
-          addMessageActions(wrapper, "assistant", savedMsg.id);
-        }
-
-        scrollToBottom();
-        resolve();
-      })
-      .catch(reject);
+  const res = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(reqBody),
+    signal: state.abortController?.signal,
   });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    let errMsg = errText;
+    try {
+      errMsg = extractApiError(JSON.parse(errText), res.status);
+    } catch {
+      /* use raw text */
+    }
+    throw new Error(errMsg || `Request failed (${res.status})`);
+  }
+
+  removeThinkingBubble();
+  const wrapper = appendMessageBubble("assistant", "");
+  const bubble = wrapper.querySelector(".message__bubble");
+  let fullContent = "";
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+
+        const raw = trimmed.slice(5).trim();
+        if (raw === "[DONE]") break;
+
+        let parsed;
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          continue;
+        }
+
+        const token = parsed?.choices?.[0]?.delta?.content;
+        if (token) {
+          fullContent += token;
+          bubble.innerHTML = formatMessageContent(fullContent);
+          scrollToBottom();
+        }
+      }
+    }
+  } catch (err) {
+    if (err.name === "AbortError") {
+      // Save whatever partial content was received before re-throwing
+      if (fullContent.trim()) {
+        const savedMsg = storage.addMessage(state.activeConversationId, {
+          role: "assistant",
+          content: fullContent,
+        });
+        addMessageActions(wrapper, "assistant", savedMsg.id);
+        scrollToBottom();
+      }
+      throw err;
+    }
+    throw err;
+  }
+
+  if (fullContent.trim()) {
+    const savedMsg = storage.addMessage(state.activeConversationId, {
+      role: "assistant",
+      content: fullContent,
+    });
+    addMessageActions(wrapper, "assistant", savedMsg.id);
+  }
+
+  scrollToBottom();
 }
