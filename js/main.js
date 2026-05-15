@@ -429,11 +429,10 @@ async function saveConversationModal() {
     Send Message
     ═══════════════════════════════════════════════════════════════════════════ */
 async function sendMessage() {
-  const content = dom.messageInput.value.trim();
+  const content = getEditorText().trim();
   if (!content || state.isLoading || !state.activeConversationId) return;
 
-  dom.messageInput.value = "";
-  resetTextareaHeight();
+  clearEditor();
 
   // Capture and clear pending attachments before dispatching
   const attachments = [...state.pendingAttachments];
@@ -535,6 +534,37 @@ async function dispatchSend(content, attachments = []) {
   }
 }
 
+function getEditorText() {
+  const el = dom.messageInput;
+  let text = "";
+  for (const node of el.childNodes) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      text += node.textContent;
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      if (node.nodeName === "BR") {
+        text += "\n";
+      } else if (
+        node.classList &&
+        node.classList.contains("input-code-block")
+      ) {
+        const lang = node.dataset.lang || "";
+        const code = node.dataset.code || "";
+        text += "```" + lang + "\n" + code + "\n" + "```";
+      } else if (node.nodeName === "DIV") {
+        const inner = node.innerHTML === "<br>" ? "" : node.innerText;
+        text += "\n" + inner;
+      } else {
+        text += node.innerText || node.textContent || "";
+      }
+    }
+  }
+  return text;
+}
+
+function clearEditor() {
+  dom.messageInput.innerHTML = "";
+}
+
 /*  ═══════════════════════════════════════════════════════════════════════════
     Load Data
     ═══════════════════════════════════════════════════════════════════════════ */
@@ -559,13 +589,13 @@ async function loadSettings() {
     Input Helpers
     ═══════════════════════════════════════════════════════════════════════════ */
 function enableInput() {
-  dom.messageInput.disabled = false;
+  dom.messageInput.contentEditable = "true";
   dom.btnSend.disabled = false;
   if (dom.btnPlus) dom.btnPlus.disabled = false;
 }
 
 function disableInput() {
-  dom.messageInput.disabled = true;
+  dom.messageInput.contentEditable = "false";
   dom.btnSend.disabled = true;
   if (dom.btnPlus) dom.btnPlus.disabled = true;
 }
@@ -580,9 +610,7 @@ function hideStopButton() {
   dom.btnSend.style.display = "flex";
 }
 
-function resetTextareaHeight() {
-  dom.messageInput.style.height = "auto";
-}
+function resetTextareaHeight() {}
 
 function showEmptyState() {
   dom.messages.innerHTML = `
@@ -640,7 +668,33 @@ function formatMessageContent(content) {
     breaks: true,
     gfm: true,
   });
-  return typeof DOMPurify !== "undefined" ? DOMPurify.sanitize(raw) : raw;
+  const sanitized =
+    typeof DOMPurify !== "undefined" ? DOMPurify.sanitize(raw) : raw;
+  const wrapped = sanitized.replace(
+    /<pre><code(?: class="language-([^"]*)")?>([\s\S]*?)<\/code><\/pre>/g,
+    (_, lang, code) => {
+      const decoded = code
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&#039;/g, "'");
+      const langLabel = lang || "";
+      return `<div class="code-block-wrapper">
+  <div class="code-block__header">
+    <span class="code-block__lang">${escapeHtml(langLabel)}</span>
+    <button class="code-block__copy-btn" title="Copy code">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="8" y="8" width="13" height="13" rx="2" stroke="currentColor" stroke-width="2"/>
+        <path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </div>
+  <pre><code class="${escapeHtml(langLabel ? `language-${langLabel}` : "")}">${code}</code></pre>
+</div>`;
+    },
+  );
+  return wrapped;
 }
 
 async function downloadGeneratedImage(url) {
@@ -917,24 +971,200 @@ function bindEvents() {
     }
   });
 
-  // ── Send message ───────────────────────────────────────────────────
+  // ── Send message ──────────────────────────────────────────────
   dom.btnSend.addEventListener("click", sendMessage);
   dom.btnStop.addEventListener("click", () => {
     if (state.abortController) state.abortController.abort();
   });
+
   dom.messageInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
     }
+
+    if (e.key === "Enter" && e.shiftKey) {
+      const sel = window.getSelection();
+      if (!sel || !sel.rangeCount) return;
+      const range = sel.getRangeAt(0);
+      const container = range.startContainer;
+      const offset = range.startOffset;
+      const lineText = getCaretLineText(container, offset);
+
+      if (lineText.trim() === "```" || /^```\S*$/.test(lineText.trim())) {
+        e.preventDefault();
+        insertCodeBlock(range, lineText.trim().slice(3));
+      }
+    }
+
+    if (e.key === "Backspace") {
+      const sel = window.getSelection();
+      if (!sel || !sel.rangeCount) return;
+      const range = sel.getRangeAt(0);
+      if (range.collapsed) {
+        const node = range.startContainer;
+        const prev =
+          node.previousSibling ||
+          (node.parentNode !== dom.messageInput
+            ? node.parentNode.previousSibling
+            : null);
+        if (
+          prev &&
+          prev.classList &&
+          prev.classList.contains("input-code-block")
+        ) {
+          e.preventDefault();
+          prev.remove();
+        }
+      }
+    }
   });
 
-  // Auto-resize textarea
   dom.messageInput.addEventListener("input", () => {
-    dom.messageInput.style.height = "auto";
-    dom.messageInput.style.height =
-      Math.min(dom.messageInput.scrollHeight, 180) + "px";
+    collapseCompletedFences();
   });
+
+  dom.messageInput.addEventListener("click", (e) => {
+    const removeBtn = e.target.closest(".input-code-block__remove");
+    if (removeBtn) {
+      const block = removeBtn.closest(".input-code-block");
+      if (block) {
+        const rawText =
+          "```" +
+          (block.dataset.lang || "") +
+          "\n" +
+          (block.dataset.code || "") +
+          "\n```";
+        const textNode = document.createTextNode(rawText);
+        block.replaceWith(textNode);
+        const sel = window.getSelection();
+        const r = document.createRange();
+        r.setStartAfter(textNode);
+        r.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(r);
+      }
+    }
+  });
+
+  function getCaretLineText(container, offset) {
+    let text = "";
+    if (container.nodeType === Node.TEXT_NODE) {
+      text = container.textContent.slice(0, offset);
+    }
+    const newlineIdx = text.lastIndexOf("\n");
+    return newlineIdx === -1 ? text : text.slice(newlineIdx + 1);
+  }
+
+  function insertCodeBlock(range, lang) {
+    const container = range.startContainer;
+    const offset = range.startOffset;
+
+    if (container.nodeType !== Node.TEXT_NODE) {
+      const br = document.createElement("br");
+      range.insertNode(br);
+      return;
+    }
+
+    const fullText = container.textContent;
+    const lineStart = fullText.lastIndexOf("\n", offset - 1) + 1;
+    const before = fullText.slice(0, lineStart);
+    const after = fullText.slice(offset);
+
+    const block = buildInputCodeBlock(lang, "");
+
+    const afterNode = after ? document.createTextNode(after) : null;
+    container.textContent = before;
+
+    const parent = container.parentNode;
+    const nextSibling = container.nextSibling;
+    if (afterNode) {
+      parent.insertBefore(afterNode, nextSibling || null);
+    }
+    parent.insertBefore(block, afterNode || nextSibling || null);
+
+    const codeEl = block.querySelector(".input-code-block__pre");
+    codeEl.focus();
+  }
+
+  function buildInputCodeBlock(lang, code) {
+    const block = document.createElement("div");
+    block.className = "input-code-block";
+    block.contentEditable = "false";
+    block.dataset.lang = lang;
+    block.dataset.code = code;
+    block.innerHTML = `
+      <div class="input-code-block__header">
+        <span>${lang || "code"}</span>
+        <button class="input-code-block__remove" type="button" title="Remove">×</button>
+      </div>
+      <pre class="input-code-block__pre" contenteditable="true" spellcheck="false"></pre>
+    `;
+    block.querySelector(".input-code-block__pre").textContent = code;
+    block
+      .querySelector(".input-code-block__pre")
+      .addEventListener("input", () => {
+        block.dataset.code = block.querySelector(
+          ".input-code-block__pre",
+        ).textContent;
+      });
+    block
+      .querySelector(".input-code-block__pre")
+      .addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && (e.shiftKey || e.metaKey || e.ctrlKey)) {
+          e.preventDefault();
+          e.stopPropagation();
+          const afterText = document.createTextNode("\n");
+          block.parentNode.insertBefore(afterText, block.nextSibling || null);
+          const sel = window.getSelection();
+          const r = document.createRange();
+          r.setStart(afterText, 1);
+          r.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(r);
+          dom.messageInput.focus();
+        }
+      });
+    return block;
+  }
+
+  function collapseCompletedFences() {
+    const el = dom.messageInput;
+    const sel = window.getSelection();
+    const activeNode =
+      sel && sel.rangeCount ? sel.getRangeAt(0).startContainer : null;
+
+    for (const node of Array.from(el.childNodes)) {
+      if (node.nodeType !== Node.TEXT_NODE) continue;
+      if (node === activeNode) continue;
+      const text = node.textContent;
+      const fenceRe = /```(\S*?)\n([\s\S]*?)\n```/g;
+      let match;
+      let lastIndex = 0;
+      const fragments = [];
+      let found = false;
+      while ((match = fenceRe.exec(text)) !== null) {
+        found = true;
+        if (match.index > lastIndex) {
+          fragments.push(
+            document.createTextNode(text.slice(lastIndex, match.index)),
+          );
+        }
+        fragments.push(buildInputCodeBlock(match[1], match[2]));
+        lastIndex = match.index + match[0].length;
+      }
+      if (!found) continue;
+      if (lastIndex < text.length) {
+        fragments.push(document.createTextNode(text.slice(lastIndex)));
+      }
+      const parent = node.parentNode;
+      const next = node.nextSibling;
+      node.remove();
+      for (const frag of fragments) {
+        parent.insertBefore(frag, next || null);
+      }
+    }
+  }
 
   // ── Resend / Regenerate / Edit buttons (event delegation) ─────
   dom.messages.addEventListener("click", (e) => {
@@ -969,6 +1199,30 @@ function bindEvents() {
     if (dlBtn) {
       const imgUrl = dlBtn.dataset.imgUrl;
       if (imgUrl) downloadGeneratedImage(imgUrl);
+      return;
+    }
+
+    // Copy code block
+    const copyBtn = e.target.closest(".code-block__copy-btn");
+    if (copyBtn) {
+      const wrapper = copyBtn.closest(".code-block-wrapper");
+      if (wrapper) {
+        const code = wrapper.querySelector("code");
+        if (code) {
+          navigator.clipboard
+            .writeText(code.textContent || "")
+            .then(() => {
+              copyBtn.classList.add("copied");
+              const originalTitle = copyBtn.getAttribute("title");
+              copyBtn.setAttribute("title", "Copied!");
+              setTimeout(() => {
+                copyBtn.classList.remove("copied");
+                copyBtn.setAttribute("title", originalTitle);
+              }, 2000);
+            })
+            .catch(() => {});
+        }
+      }
       return;
     }
   });

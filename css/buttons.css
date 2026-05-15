@@ -165,17 +165,82 @@
     font-family: var(--font-sans);
     font-size: 0.925rem;
     line-height: 1.55;
-    max-height: 180px;
+    min-height: calc(1.55em + 24px);
+    max-height: 320px;
     overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    cursor: text;
 }
 
-.input-bar__textarea::placeholder {
+.input-bar__textarea:empty::before {
+    content: attr(data-placeholder);
+    color: var(--clr-text-muted);
+    pointer-events: none;
+}
+
+.input-bar__textarea[contenteditable="false"] {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.input-bar__textarea .input-code-block {
+    display: block;
+    margin: 6px 0;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--clr-border);
+    overflow: hidden;
+    white-space: normal;
+    cursor: default;
+    user-select: none;
+}
+
+.input-bar__textarea .input-code-block__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 10px;
+    background: var(--clr-surface-3);
+    border-bottom: 1px solid var(--clr-border);
+    font-size: 0.7rem;
+    font-family: var(--font-mono);
     color: var(--clr-text-muted);
 }
 
-.input-bar__textarea:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
+.input-bar__textarea .input-code-block__remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--clr-text-muted);
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    line-height: 1;
+    transition:
+        background var(--transition),
+        color var(--transition);
+}
+
+.input-bar__textarea .input-code-block__remove:hover {
+    background: rgba(220, 53, 69, 0.15);
+    color: #dc3545;
+}
+
+.input-bar__textarea .input-code-block__pre {
+    margin: 0;
+    padding: 8px 12px;
+    background: var(--clr-code-bg);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    line-height: 1.5;
+    overflow-x: auto;
+    white-space: pre;
+    color: var(--clr-text);
 }
 
 /* Send button — inside the input wrap */

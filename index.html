@@ -402,13 +402,16 @@
                                     </svg>
                                 </button>
                             </div>
-                            <textarea
+                            <div
                                 id="message-input"
                                 class="input-bar__textarea"
-                                placeholder="Message…"
-                                rows="1"
-                                disabled
-                            ></textarea>
+                                contenteditable="false"
+                                data-placeholder="Message…"
+                                role="textbox"
+                                aria-multiline="true"
+                                aria-label="Message"
+                                spellcheck="true"
+                            ></div>
                             <button
                                 class="btn btn--send"
                                 id="btn-send"

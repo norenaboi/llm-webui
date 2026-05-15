@@ -116,8 +116,6 @@ function appendMessageBubble(
         </button>
         <img class="message__generated-img" src="${escapeHtml(imgUrl)}" alt="Generated image" />
       </div>`;
-  } else if (role === "user") {
-    bubbleInner = `<span style="white-space: pre-wrap">${escapeHtml(content)}</span>`;
   } else {
     bubbleInner = formatMessageContent(content);
   }
@@ -395,6 +393,23 @@ function startEditMessage(wrapper, role, messageId) {
 
   textarea.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
+      const value = textarea.value;
+      const cursorPos = textarea.selectionStart;
+      const beforeCursor = value.slice(0, cursorPos);
+      const afterCursor = value.slice(cursorPos);
+      const lastNewline = beforeCursor.lastIndexOf("\n");
+      const currentLine = beforeCursor.slice(lastNewline + 1);
+
+      if (currentLine.trim() === "```" && !afterCursor.startsWith("\n```")) {
+        e.preventDefault();
+        const closingFence = afterCursor.startsWith("\n") ? "\n```" : "\n\n```";
+        textarea.value = beforeCursor + closingFence + afterCursor;
+        textarea.selectionStart = textarea.selectionEnd = cursorPos;
+        textarea.style.height = "0";
+        textarea.style.height = textarea.scrollHeight + "px";
+        return;
+      }
+
       e.preventDefault();
       doSave();
     }
