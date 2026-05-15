@@ -1,4 +1,3 @@
-
 /*  ═══════════════════════════════════════════════════════════════════════════
     Model List  (persisted to localStorage)
     ═══════════════════════════════════════════════════════════════════════════ */
@@ -13,7 +12,9 @@ function loadModels() {
       const parsed = JSON.parse(raw);
       // Backward compat: old format stored plain strings
       state.models = parsed.map((m) =>
-        typeof m === "string" ? { id: m, outputTypes: ["text"] } : m,
+        typeof m === "string"
+          ? { id: m, outputTypes: ["text"], inputTypes: ["text"] }
+          : { inputTypes: ["text"], ...m },
       );
     } else {
       state.models = [...DEFAULT_MODELS];
@@ -31,7 +32,7 @@ function addModel(name) {
   name = name.trim();
   if (!name) return false;
   if (state.models.some((m) => m.id === name)) return false;
-  state.models.push({ id: name, outputTypes: ["text"] });
+  state.models.push({ id: name, outputTypes: ["text"], inputTypes: ["text"] });
   saveModels();
   return true;
 }
@@ -86,12 +87,47 @@ async function fetchModels(endpoint, apiKey) {
             } else {
               outputTypes = ["text"]; // default (covers type:"chat" and unknowns)
             }
-            return { id: m.id, outputTypes };
+
+            // Detect input modalities (vision / image-input support)
+            let inputTypes;
+            if (
+              Array.isArray(m.input_modalities) &&
+              m.input_modalities.length
+            ) {
+              // Pollinations: top-level input_modalities
+              inputTypes = m.input_modalities;
+            } else if (
+              Array.isArray(m.architecture?.input_modalities) &&
+              m.architecture.input_modalities.length
+            ) {
+              // OpenRouter: architecture.input_modalities
+              inputTypes = m.architecture.input_modalities;
+            } else if (typeof m.architecture?.modality === "string") {
+              // OpenRouter alt: e.g. "text+image->text" — parse left of "->"
+              const modalityStr = m.architecture.modality;
+              const inputSide = modalityStr.includes("->")
+                ? modalityStr.slice(0, modalityStr.indexOf("->"))
+                : modalityStr;
+              inputTypes = inputSide.includes("image")
+                ? ["text", "image"]
+                : ["text"];
+            } else {
+              inputTypes = ["text"];
+            }
+
+            return { id: m.id, outputTypes, inputTypes };
           })
           .filter(Boolean)
       : [];
 
-    return list.length ? list.sort((a, b) => a.id.localeCompare(b.id)) : null;
+    // Exclude models that only output audio or video — keep text and/or image models.
+    const filtered = list.filter((m) =>
+      m.outputTypes.some((t) => t === "text" || t === "image"),
+    );
+
+    return filtered.length
+      ? filtered.sort((a, b) => a.id.localeCompare(b.id))
+      : null;
   } catch {
     return null;
   }
@@ -455,6 +491,10 @@ function renderCustomDropdown(selectedValue, filter = "") {
 
     // Output type tags — show all types; only render if there's a mix in the list
     const outputTypes = m.outputTypes || ["text"];
+    const inputTypes = m.inputTypes || ["text"];
+    const hasVisionModels = models.some((model) =>
+      model.inputTypes?.includes("image"),
+    );
     const tagsHtml = hasMixedTypes
       ? outputTypes
           .map(
@@ -463,6 +503,10 @@ function renderCustomDropdown(selectedValue, filter = "") {
           )
           .join("")
       : "";
+    const visionTagHtml =
+      hasVisionModels && inputTypes.includes("image")
+        ? `<span class="model-selector__tag model-selector__tag--vision">vision</span>`
+        : "";
 
     btn.innerHTML = `
       ${iconHtml}
@@ -470,7 +514,7 @@ function renderCustomDropdown(selectedValue, filter = "") {
         ${providerLabel ? `<span class="model-selector__option-provider">${escapeHtml(providerLabel)}</span>` : ""}
         <span class="model-selector__option-name">${escapeHtml(modelName)}</span>
       </span>
-      ${tagsHtml ? `<span class="model-selector__tags">${tagsHtml}</span>` : ""}
+      ${tagsHtml || visionTagHtml ? `<span class="model-selector__tags">${tagsHtml}${visionTagHtml}</span>` : ""}
       <svg class="model-selector__check" viewBox="0 0 13 13" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path d="M2 7l3 3 6-6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>`;

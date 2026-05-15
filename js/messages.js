@@ -120,22 +120,39 @@ function appendMessageBubble(
     bubbleInner = formatMessageContent(content);
   }
 
-  // Prepend any inline images inside the bubble (in-memory only, not persisted)
+  // Prepend any inline images inside the bubble (in-memory only, not persisted).
+  // Only render the <img> when dataUrl is available; messages loaded from storage
+  // have the dataUrl stripped to avoid exceeding the localStorage quota.
   if (imageAttachments.length > 0 && role === "user") {
     const imgsHtml = imageAttachments
+      .filter((a) => a.dataUrl)
       .map(
         (a) =>
           `<img class="message__attachment-img" src="${a.dataUrl}" alt="${escapeHtml(a.name)}" />`,
       )
       .join("");
-    bubbleInner = imgsHtml + bubbleInner;
+    if (imgsHtml) bubbleInner = imgsHtml + bubbleInner;
   }
 
   const roleLabel = role === "user" ? "You" : "Assistant";
 
-  // Build text file chips as a separate row above the bubble (in-memory only, not persisted)
+  // Build chips row above the bubble for text files, generate-image, and image
+  // attachments whose dataUrl was stripped (loaded from storage).
   let attachmentsHtml = "";
-  if ((textAttachments.length > 0 || hasGenerateImage) && role === "user") {
+  const imageChips = imageAttachments
+    .filter((a) => !a.dataUrl)
+    .map(
+      (a) =>
+        `<div class="message__file-chip">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" stroke-width="1.8"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="M21 15.5l-5.5-5.5L5 21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>${escapeHtml(a.name)}</span>
+        </div>`,
+    )
+    .join("");
+  if (
+    (textAttachments.length > 0 || hasGenerateImage || imageChips) &&
+    role === "user"
+  ) {
     const fileChipsHtml = textAttachments
       .map(
         (a) =>
@@ -151,7 +168,7 @@ function appendMessageBubble(
           <span>Generate Image</span>
         </div>`
       : "";
-    attachmentsHtml = `<div class="message__attachments">${genImgChip}${fileChipsHtml}</div>`;
+    attachmentsHtml = `<div class="message__attachments">${genImgChip}${fileChipsHtml}${imageChips}</div>`;
   }
 
   let html = `
@@ -280,7 +297,10 @@ function startEditMessage(wrapper, role, messageId) {
       .map((a, i) => {
         let iconHtml;
         if (a.type === "image") {
-          iconHtml = `<img class="message__file-chip__thumb" src="${a.dataUrl}" alt="${escapeHtml(a.name)}" />`;
+          // dataUrl may be absent for messages loaded from storage (stripped to save quota)
+          iconHtml = a.dataUrl
+            ? `<img class="message__file-chip__thumb" src="${a.dataUrl}" alt="${escapeHtml(a.name)}" />`
+            : `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" stroke-width="1.8"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="M21 15.5l-5.5-5.5L5 21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
         } else if (a.type === "generate-image") {
           iconHtml = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" stroke-width="1.8"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="M21 15.5l-5.5-5.5L5 21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
         } else {

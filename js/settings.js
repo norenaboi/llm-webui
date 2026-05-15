@@ -262,9 +262,24 @@ async function saveSettingsModal() {
     showToast("Settings saved", "success");
     closeModal(dom.modalSettings);
 
-    // If topbar has no active conversation, refresh its model list from new endpoint
-    if (!state.activeConversationId && endpoint) {
-      fetchAndPopulateModels(endpoint, api_key, dom.topbarModel, model);
+    // If there's an active conversation, update its endpoint to match the new settings endpoint
+    // so that when the user selects a model from the new endpoint and sends a message,
+    // the API call goes to the correct endpoint.
+    if (state.activeConversationId && endpoint) {
+      storage.updateConversation(state.activeConversationId, { endpoint });
+      state.conversations = storage.getConversations();
+    }
+
+    // Refresh the topbar model list from the new endpoint
+    if (endpoint) {
+      const currentModel = state.activeConversationId
+        ? (
+            state.conversations.find(
+              (c) => c.id === state.activeConversationId,
+            ) || {}
+          ).model || model
+        : model;
+      fetchAndPopulateModels(endpoint, api_key, dom.topbarModel, currentModel);
     }
   } catch (err) {
     showToast("Failed to save settings: " + err.message, "error");

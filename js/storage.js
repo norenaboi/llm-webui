@@ -17,7 +17,16 @@ function lsGet(key) {
 }
 
 function lsSet(key, value) {
-  localStorage.setItem(key, JSON.stringify(value));
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "QuotaExceededError") {
+      throw new Error(
+        "Storage quota exceeded. Try deleting some old conversations to free up space.",
+      );
+    }
+    throw e;
+  }
 }
 
 const storage = {

@@ -469,11 +469,23 @@ async function dispatchSend(content, attachments = []) {
     hasGenerateImage,
   );
 
-  // Save user message to storage before the fetch
+  // Save user message to storage before the fetch.
+  // Strip dataUrl from image attachments before persisting — base64 image data
+  // can be several MB and will quickly exceed the ~5 MB localStorage quota.
+  // The dataUrl is only needed for the in-flight API request (already captured
+  // in the `attachments` variable above) and for the current-session UI render.
+  const attachmentsForStorage =
+    attachments.length > 0
+      ? attachments.map((a) =>
+          a.type === "image"
+            ? { type: a.type, name: a.name, mimeType: a.mimeType }
+            : a,
+        )
+      : undefined;
   const userMsg = storage.addMessage(state.activeConversationId, {
     role: "user",
     content,
-    attachments: attachments.length > 0 ? attachments : undefined,
+    attachments: attachmentsForStorage,
   });
   addMessageActions(userWrapper, "user", userMsg.id);
 

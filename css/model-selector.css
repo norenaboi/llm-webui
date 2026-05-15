@@ -1,4 +1,3 @@
-
 /* ── Model selector custom dropdown ─────────────────────── */
 .model-selector {
     position: relative;
@@ -265,6 +264,16 @@
 
 [data-theme="light"] .model-selector__tag--image {
     color: #b45309; /* amber-700, for light mode */
+}
+
+.model-selector__tag--vision {
+    background: rgba(34, 197, 94, 0.15);
+    color: #22c55e;
+    border-color: rgba(34, 197, 94, 0.3);
+}
+
+[data-theme="light"] .model-selector__tag--vision {
+    color: #16a34a;
 }
 
 /* Icon inside each model option row */
