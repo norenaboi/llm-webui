@@ -21,6 +21,9 @@ const dom = {
   sidebar: document.getElementById("sidebar"),
   // Conversation list
   convList: document.getElementById("conversation-list"),
+  // Search
+  searchInput: document.getElementById("conversation-search"),
+  searchClearBtn: document.getElementById("search-clear-btn"),
   // Messages
   messages: document.getElementById("messages"),
   // Topbar
@@ -208,7 +211,7 @@ function onTopbarModelChange() {
 /*  ═══════════════════════════════════════════════════════════════════════════
     Select Conversation
     ═══════════════════════════════════════════════════════════════════════════ */
-async function selectConversation(id) {
+async function selectConversation(id, messageId = null) {
   if (state.isLoading) return;
 
   state.activeConversationId = id;
@@ -245,8 +248,33 @@ async function selectConversation(id) {
 
     renderMessages(conv.messages);
     enableInput();
+
+    // If a specific message was requested, scroll to it
+    if (messageId) {
+      setTimeout(() => {
+        scrollToMessage(messageId);
+      }, 100);
+    }
   } catch (err) {
     showToast("Failed to load conversation: " + err.message, "error");
+  }
+}
+
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Scroll to Message
+    ═══════════════════════════════════════════════════════════════════════════ */
+function scrollToMessage(messageId) {
+  const messageEl = dom.messages.querySelector(
+    `.message[data-message-id="${messageId}"]`,
+  );
+  if (messageEl) {
+    messageEl.scrollIntoView({ behavior: "smooth", block: "center" });
+    // Add a brief highlight effect
+    messageEl.style.transition = "background 0.3s ease";
+    messageEl.style.background = "var(--clr-surface-2)";
+    setTimeout(() => {
+      messageEl.style.background = "";
+    }, 1500);
   }
 }
 
@@ -773,6 +801,36 @@ function bindEvents() {
 
   // Theme toggle
   dom.btnThemeToggle.addEventListener("click", toggleTheme);
+
+  // ── Search functionality ──────────────────────────────────
+  if (dom.searchInput) {
+    dom.searchInput.addEventListener("input", (e) => {
+      const query = e.target.value;
+      if (query.trim()) {
+        dom.searchClearBtn.style.display = "flex";
+      } else {
+        dom.searchClearBtn.style.display = "none";
+      }
+      renderConversationList(query);
+    });
+
+    dom.searchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        dom.searchInput.value = "";
+        dom.searchClearBtn.style.display = "none";
+        renderConversationList();
+      }
+    });
+  }
+
+  if (dom.searchClearBtn) {
+    dom.searchClearBtn.addEventListener("click", () => {
+      dom.searchInput.value = "";
+      dom.searchClearBtn.style.display = "none";
+      renderConversationList();
+      dom.searchInput.focus();
+    });
+  }
 
   // New conversation
   document

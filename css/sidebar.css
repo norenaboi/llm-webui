@@ -41,6 +41,78 @@
     transition: opacity var(--transition);
 }
 
+.sidebar__search {
+    padding: 8px 10px 10px;
+    border-top: 1px solid var(--clr-border);
+    flex-shrink: 0;
+    transition: opacity var(--transition);
+}
+
+.sidebar__search-input-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    background: var(--clr-surface-2);
+    border: 1px solid var(--clr-border);
+    border-radius: var(--radius-sm);
+    padding: 0 8px;
+    transition:
+        background var(--transition),
+        border-color var(--transition);
+}
+
+.sidebar__search-input-wrapper:focus-within {
+    background: var(--clr-surface);
+    border-color: var(--clr-primary);
+}
+
+.sidebar__search-icon {
+    flex-shrink: 0;
+    color: var(--clr-text-muted);
+    margin-right: 6px;
+}
+
+.sidebar__search-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    padding: 7px 4px;
+    font-size: 0.8rem;
+    font-family: var(--font-sans);
+    color: var(--clr-text);
+    min-width: 0;
+}
+
+.sidebar__search-input::placeholder {
+    color: var(--clr-text-muted);
+    opacity: 0.7;
+}
+
+.sidebar__search-clear {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-xs);
+    background: transparent;
+    border: none;
+    color: var(--clr-text-muted);
+    cursor: pointer;
+    font-size: 0.7rem;
+    transition:
+        background var(--transition),
+        color var(--transition);
+}
+
+.sidebar__search-clear:hover {
+    background: var(--clr-surface);
+    color: var(--clr-text);
+}
+
 .sidebar__footer {
     padding: 10px 12px;
     border-top: 1px solid var(--clr-border);
@@ -54,6 +126,7 @@
 
 /* ── Collapsed sidebar: icon-only column ─────────────────── */
 .sidebar.collapsed .sidebar__nav,
+.sidebar.collapsed .sidebar__search,
 .sidebar.collapsed .sidebar__footer {
     opacity: 0;
     pointer-events: none;
@@ -215,6 +288,39 @@
     overflow: hidden;
     text-overflow: ellipsis;
     margin-top: 1px;
+}
+
+/* Search result items with message preview */
+.conv-item--search-result .conv-item__title {
+    font-size: 0.78rem;
+}
+
+.conv-item__message-preview {
+    font-size: 0.7rem;
+    color: var(--clr-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+    font-style: italic;
+}
+
+.conv-item__message-preview mark {
+    background: rgba(var(--clr-primary-rgb, 99, 102, 241), 0.2);
+    color: var(--clr-text);
+    border-radius: 2px;
+    padding: 0 2px;
+}
+
+.conv-item__search-badge {
+    display: inline-block;
+    font-size: 0.65rem;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: var(--clr-surface-2);
+    color: var(--clr-text-muted);
+    margin-right: 4px;
+    font-weight: 500;
 }
 
 /* 3-dot menu button on conv items */

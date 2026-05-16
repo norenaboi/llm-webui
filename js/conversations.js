@@ -1,7 +1,7 @@
 /*  ═══════════════════════════════════════════════════════════════════════════
     Render: Conversation List
     ═══════════════════════════════════════════════════════════════════════════ */
-function renderConversationList() {
+function renderConversationList(searchQuery = "") {
   dom.convList.innerHTML = "";
 
   if (state.conversations.length === 0) {
@@ -11,6 +11,13 @@ function renderConversationList() {
     return;
   }
 
+  // If there's a search query, show search results
+  if (searchQuery.trim()) {
+    renderSearchResults(searchQuery.trim());
+    return;
+  }
+
+  // Normal conversation list
   for (const conv of state.conversations) {
     const item = document.createElement("div");
     item.className =
@@ -45,6 +52,131 @@ function renderConversationList() {
 
     dom.convList.appendChild(item);
   }
+}
+
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Search: Render Search Results
+    ═══════════════════════════════════════════════════════════════════════════ */
+function renderSearchResults(query) {
+  const results = searchConversationsAndMessages(query);
+
+  if (results.length === 0) {
+    dom.convList.innerHTML = `<p style="padding:16px 12px;font-size:0.78rem;color:var(--clr-text-muted);text-align:center;line-height:1.5;">
+        No results found for "${escapeHtml(query)}"
+      </p>`;
+    return;
+  }
+
+  for (const result of results) {
+    const item = document.createElement("div");
+    item.className = "conv-item conv-item--search-result";
+    item.dataset.id = result.conversationId;
+    if (result.messageId) {
+      item.dataset.messageId = result.messageId;
+    }
+
+    const conv = state.conversations.find(
+      (c) => c.id === result.conversationId,
+    );
+    if (!conv) continue;
+
+    const date = new Date(conv.updated_at);
+    const dateStr = date.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    });
+
+    let titleHtml = "";
+    let previewHtml = "";
+
+    if (result.type === "title") {
+      // Highlight matched title
+      titleHtml = highlightText(conv.title, query);
+      previewHtml = `<div class="conv-item__meta"><span class="conv-item__search-badge">Title</span>${escapeHtml(conv.model || "No model")} · ${dateStr}</div>`;
+    } else if (result.type === "message") {
+      // Show conversation title + message preview
+      titleHtml = escapeHtml(conv.title);
+      const messagePreview = truncateText(result.messageContent, 60);
+      const highlightedPreview = highlightText(messagePreview, query);
+      const roleBadge = result.messageRole === "user" ? "You" : "Assistant";
+      previewHtml = `
+        <div class="conv-item__meta"><span class="conv-item__search-badge">${roleBadge}</span>${escapeHtml(conv.model || "No model")} · ${dateStr}</div>
+        <div class="conv-item__message-preview">${highlightedPreview}</div>
+      `;
+    }
+
+    item.innerHTML = `
+      <div class="conv-item__info">
+        <div class="conv-item__title">${titleHtml}</div>
+        ${previewHtml}
+      </div>
+    `;
+
+    item.addEventListener("click", () => {
+      selectConversation(result.conversationId, result.messageId);
+    });
+
+    dom.convList.appendChild(item);
+  }
+}
+
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Search: Core Search Logic
+    ═══════════════════════════════════════════════════════════════════════════ */
+function searchConversationsAndMessages(query) {
+  const results = [];
+  const lowerQuery = query.toLowerCase();
+  const allMessages = lsGet(STORAGE_KEYS.messages) || {};
+
+  for (const conv of state.conversations) {
+    // Search in conversation title
+    if (conv.title.toLowerCase().includes(lowerQuery)) {
+      results.push({
+        type: "title",
+        conversationId: conv.id,
+        messageId: null,
+      });
+    }
+
+    // Search in messages
+    const messages = allMessages[conv.id] || [];
+    for (const msg of messages) {
+      if (msg.content && msg.content.toLowerCase().includes(lowerQuery)) {
+        results.push({
+          type: "message",
+          conversationId: conv.id,
+          messageId: msg.id,
+          messageContent: msg.content,
+          messageRole: msg.role,
+        });
+      }
+    }
+  }
+
+  return results;
+}
+
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Search: Helper Functions
+    ═══════════════════════════════════════════════════════���═══════════════════ */
+function highlightText(text, query) {
+  const escaped = escapeHtml(text);
+  const lowerText = text.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  const index = lowerText.indexOf(lowerQuery);
+
+  if (index === -1) return escaped;
+
+  const before = escapeHtml(text.substring(0, index));
+  const match = escapeHtml(text.substring(index, index + query.length));
+  const after = escapeHtml(text.substring(index + query.length));
+
+  return `${before}<mark>${match}</mark>${after}`;
+}
+
+function truncateText(text, maxLength) {
+  if (text.length <= maxLength) return text;
+  return text.substring(0, maxLength) + "...";
 }
 
 /*  ═══════════════════════════════════════════════════════════════════════════
