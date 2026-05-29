@@ -50,10 +50,7 @@ async function sendMessageBlocking(
     }
   }
 
-  const _epBlocking = conv.endpoint.replace(/\/+$/, "");
-  const url = _epBlocking.endsWith("/chat/completions")
-    ? _epBlocking
-    : `${_epBlocking}/chat/completions`;
+  const url = buildChatUrl(conv.endpoint);
   const headers = { "Content-Type": "application/json" };
   const _keyBlocking = resolveApiKey(conv);
   if (_keyBlocking) headers["Authorization"] = `Bearer ${_keyBlocking}`;
@@ -161,10 +158,7 @@ async function sendImageGeneration(
     });
   } else {
     // OpenRouter / other: POST to chat completions with modalities:["image"]
-    const _epImg = conv.endpoint.replace(/\/+$/, "");
-    const url = _epImg.endsWith("/chat/completions")
-      ? _epImg
-      : `${_epImg}/chat/completions`;
+    const url = buildChatUrl(conv.endpoint);
     const headers = { "Content-Type": "application/json" };
     const _keyImgGen = resolveApiKey(conv);
     if (_keyImgGen) headers["Authorization"] = `Bearer ${_keyImgGen}`;
@@ -271,10 +265,7 @@ async function sendMessageStreaming(
   const _keyStreaming = resolveApiKey(conv);
   if (_keyStreaming) headers["Authorization"] = `Bearer ${_keyStreaming}`;
 
-  const _epStreaming = conv.endpoint.replace(/\/+$/, "");
-  const url = _epStreaming.endsWith("/chat/completions")
-    ? _epStreaming
-    : `${_epStreaming}/chat/completions`;
+  const url = buildChatUrl(conv.endpoint);
 
   const reqBody = {
     model: conv.model,

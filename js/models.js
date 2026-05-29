@@ -43,17 +43,35 @@ function removeModel(name) {
 }
 
 /**
+ * Strip any path suffix the user may have appended and return a bare base URL.
+ * Handles all three common input forms:
+ *   https://host.com             → https://host.com
+ *   https://host.com/v1          → https://host.com
+ *   https://host.com/v1/chat/completions → https://host.com
+ */
+function normalizeEndpointBase(endpoint) {
+  return endpoint
+    .replace(/\/+$/, "")
+    .replace(/\/v1\/chat\/completions$/, "")
+    .replace(/\/chat\/completions$/, "")
+    .replace(/\/image$/, "")
+    .replace(/\/v1$/, "");
+}
+
+/**
+ * Build the correct chat/completions URL from whatever the user entered.
+ */
+function buildChatUrl(endpoint) {
+  return `${normalizeEndpointBase(endpoint)}/v1/chat/completions`;
+}
+
+/**
  * Fetch the available models from an OpenAI-compatible /v1/models endpoint.
  */
 async function fetchModels(endpoint, apiKey) {
   if (!endpoint) return null;
 
-  // Always fetch from {base}/v1/models.
-  // Strip any suffix that was appended by the mode toggle so the models
-  // URL is correct regardless of the selected text/image mode.
-  let base = endpoint.replace(/\/+$/, "");
-  base = base.replace(/\/v1\/chat\/completions$/, "").replace(/\/image$/, "");
-  const url = `${base}/v1/models`;
+  const url = `${normalizeEndpointBase(endpoint)}/v1/models`;
 
   try {
     const headers = { "Content-Type": "application/json" };
