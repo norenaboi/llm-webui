@@ -605,6 +605,10 @@ function clearEditor() {
   dom.messageInput.innerHTML = "";
 }
 
+function setEditorText(text) {
+  dom.messageInput.textContent = text;
+}
+
 /*  ═══════════════════════════════════════════════════════════════════════════
     Load Data
     ═══════════════════════════════════════════════════════════════════════════ */
@@ -1420,6 +1424,41 @@ async function init() {
   } else {
     populateTopbarModelSelect(state.settings.model || "");
   }
+
+  // Handle Firefox AI sidebar integration: check for ?q= URL parameter
+  handleFirefoxPrompt();
+}
+
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Firefox AI Sidebar Integration
+    ═══════════════════════════════════════════════════════════════════════════ */
+async function handleFirefoxPrompt() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const prompt = urlParams.get("q");
+
+  if (!prompt) return;
+
+  // Clear the URL parameter so it doesn't interfere on reload
+  const url = new URL(window.location);
+  url.searchParams.delete("q");
+  window.history.replaceState({}, "", url);
+
+  // Wait a bit for the UI to be ready
+  await new Promise((resolve) => setTimeout(resolve, 300));
+
+  // If no active conversation, create one
+  if (!state.activeConversationId) {
+    await createNewConversation();
+  }
+
+  // Wait for the conversation to be ready
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  // Set the prompt in the input
+  setEditorText(prompt);
+
+  // Auto-send the message
+  await sendMessage();
 }
 
 init();
