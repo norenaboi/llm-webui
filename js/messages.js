@@ -34,6 +34,7 @@ function renderMessages(messages) {
       imageAtts,
       textAtts,
       hasGenImg,
+      msg.reasoning || null,
     );
   }
 
@@ -82,6 +83,7 @@ function appendMessageBubble(
   imageAttachments = [],
   textAttachments = [],
   hasGenerateImage = false,
+  reasoning = null,
 ) {
   const empty = dom.messages.querySelector(".empty-state");
   if (empty) empty.remove();
@@ -171,9 +173,25 @@ function appendMessageBubble(
     attachmentsHtml = `<div class="message__attachments">${genImgChip}${fileChipsHtml}${imageChips}</div>`;
   }
 
+  // Reasoning block (collapsible, collapsed by default)
+  let reasoningHtml = "";
+  if (reasoning && reasoning.trim()) {
+    reasoningHtml = `<details class="message__reasoning">
+      <summary class="message__reasoning-summary">
+        <svg class="message__reasoning-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z" stroke="currentColor" stroke-width="1.5"/>
+        </svg>
+        <span>Thought process</span>
+      </summary>
+      <div class="message__reasoning-body">${formatMessageContent(reasoning)}</div>
+    </details>`;
+  }
+
   let html = `
     <span class="message__role">${roleLabel}</span>
     ${attachmentsHtml}
+    ${reasoningHtml}
     <div class="message__bubble">${bubbleInner}</div>
     <span class="message__time">${time}</span>
   `;
@@ -186,6 +204,40 @@ function appendMessageBubble(
   wrapper.innerHTML = html;
   dom.messages.appendChild(wrapper);
   return wrapper;
+}
+
+/* Update or create the reasoning block inside a message wrapper.
+   Called during streaming to show reasoning tokens as they arrive. */
+function updateReasoningBlock(wrapper, reasoningText) {
+  if (!reasoningText || !reasoningText.trim()) return;
+
+  let details = wrapper.querySelector(".message__reasoning");
+  if (!details) {
+    details = document.createElement("details");
+    details.className = "message__reasoning";
+    details.innerHTML = `
+      <summary class="message__reasoning-summary">
+        <svg class="message__reasoning-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z" stroke="currentColor" stroke-width="1.5"/>
+        </svg>
+        <span>Thought process</span>
+      </summary>
+      <div class="message__reasoning-body"></div>
+    `;
+    // Insert before the bubble
+    const bubble = wrapper.querySelector(".message__bubble");
+    if (bubble) {
+      bubble.insertAdjacentElement("beforebegin", details);
+    } else {
+      wrapper.appendChild(details);
+    }
+  }
+
+  const body = details.querySelector(".message__reasoning-body");
+  if (body) {
+    body.innerHTML = formatMessageContent(reasoningText);
+  }
 }
 
 function appendThinkingBubble() {

@@ -1,3 +1,44 @@
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Reasoning Extraction
+    Extracts <think>...</think> blocks from text and returns separated
+    reasoning + content. Handles unclosed <think> tags (streaming —
+    closing tag hasn't arrived yet).
+    ═══════════════════════════════════════════════════════════════════════════ */
+function extractThinkTags(text) {
+  const reasoningParts = [];
+  const contentParts = [];
+  let lastIndex = 0;
+
+  const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
+  let match;
+  while ((match = thinkRegex.exec(text)) !== null) {
+    contentParts.push(text.slice(lastIndex, match.index));
+    reasoningParts.push(match[1]);
+    lastIndex = match.index + match[0].length;
+  }
+
+  const afterClosed = text.slice(lastIndex);
+  const unclosedIdx = afterClosed.indexOf("<think>");
+  if (unclosedIdx !== -1) {
+    contentParts.push(afterClosed.slice(0, unclosedIdx));
+    reasoningParts.push(afterClosed.slice(7)); // 7 = "<think>".length
+  } else {
+    contentParts.push(afterClosed);
+  }
+
+  return {
+    reasoning: reasoningParts.join("\n").trim(),
+    content: contentParts.join("").trim(),
+  };
+}
+
+/* Extract reasoning from a delta/message object, checking both
+   `reasoning` and `reasoning_content` fields (different providers
+   use different names). */
+function extractReasoningField(obj) {
+  return obj?.reasoning || obj?.reasoning_content || "";
+}
+
 async function sendMessageBlocking(
   content,
   userWrapper = null,
@@ -84,19 +125,35 @@ async function sendMessageBlocking(
   }
 
   const data = await res.json();
-  const reply = data?.choices?.[0]?.message?.content;
+  const choice = data?.choices?.[0]?.message;
+  if (!choice) throw new Error("Unexpected response format from LLM API");
+
+  let reply = choice.content || "";
+  let reasoning = extractReasoningField(choice);
+
+  // Fallback: strip <think> tags from content and route to reasoning
+  if (reply.includes("<think>")) {
+    const extracted = extractThinkTags(reply);
+    reasoning = (reasoning + "\n" + extracted.reasoning).trim();
+    reply = extracted.content;
+  }
+
   if (!reply) throw new Error("Unexpected response format from LLM API");
 
-  const assistantMessage = storage.addMessage(state.activeConversationId, {
-    role: "assistant",
-    content: reply,
-  });
+  const msgData = { role: "assistant", content: reply };
+  if (reasoning) msgData.reasoning = reasoning;
+  const assistantMessage = storage.addMessage(state.activeConversationId, msgData);
 
   removeThinkingBubble();
   const assistantWrapper = appendMessageBubble(
     "assistant",
     assistantMessage.content,
     assistantMessage.created_at,
+    assistantMessage.id,
+    [],
+    [],
+    false,
+    reasoning,
   );
   addMessageActions(assistantWrapper, "assistant", assistantMessage.id);
   scrollToBottom();
@@ -299,6 +356,7 @@ async function sendMessageStreaming(
   const wrapper = appendMessageBubble("assistant", "");
   const bubble = wrapper.querySelector(".message__bubble");
   let fullContent = "";
+  let fullReasoning = "";
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder("utf-8");
@@ -327,10 +385,34 @@ async function sendMessageStreaming(
           continue;
         }
 
-        const token = parsed?.choices?.[0]?.delta?.content;
+        const delta = parsed?.choices?.[0]?.delta;
+        if (!delta) continue;
+
+        // Reasoning token (separate field from providers like OpenRouter)
+        const reasoningToken = extractReasoningField(delta);
+        if (reasoningToken) {
+          fullReasoning += reasoningToken;
+          updateReasoningBlock(wrapper, fullReasoning);
+          scrollToBottom();
+        }
+
+        // Content token
+        const token = delta.content;
         if (token) {
-          fullContent += token;
-          bubble.innerHTML = formatMessageContent(fullContent);
+          // Check for <think> tags inline in content (fallback for
+          // providers that embed reasoning in the content stream)
+          if (token.includes("<think>") || fullContent.includes("<think>")) {
+            fullContent += token;
+            const extracted = extractThinkTags(fullContent);
+            if (extracted.reasoning) {
+              fullReasoning = (fullReasoning + "\n" + extracted.reasoning).trim();
+              updateReasoningBlock(wrapper, fullReasoning);
+            }
+            bubble.innerHTML = formatMessageContent(extracted.content);
+          } else {
+            fullContent += token;
+            bubble.innerHTML = formatMessageContent(fullContent);
+          }
           scrollToBottom();
         }
       }
@@ -339,10 +421,9 @@ async function sendMessageStreaming(
     if (err.name === "AbortError") {
       // Save whatever partial content was received before re-throwing
       if (fullContent.trim()) {
-        const savedMsg = storage.addMessage(state.activeConversationId, {
-          role: "assistant",
-          content: fullContent,
-        });
+        const msgData = { role: "assistant", content: fullContent };
+        if (fullReasoning.trim()) msgData.reasoning = fullReasoning.trim();
+        const savedMsg = storage.addMessage(state.activeConversationId, msgData);
         addMessageActions(wrapper, "assistant", savedMsg.id);
         scrollToBottom();
       }
@@ -351,11 +432,21 @@ async function sendMessageStreaming(
     throw err;
   }
 
+  // Final cleanup: strip any lingering <think> tags from content
+  if (fullContent.includes("<think>")) {
+    const extracted = extractThinkTags(fullContent);
+    if (extracted.reasoning) {
+      fullReasoning = (fullReasoning + "\n" + extracted.reasoning).trim();
+    }
+    fullContent = extracted.content;
+    bubble.innerHTML = formatMessageContent(fullContent);
+    updateReasoningBlock(wrapper, fullReasoning);
+  }
+
   if (fullContent.trim()) {
-    const savedMsg = storage.addMessage(state.activeConversationId, {
-      role: "assistant",
-      content: fullContent,
-    });
+    const msgData = { role: "assistant", content: fullContent };
+    if (fullReasoning.trim()) msgData.reasoning = fullReasoning.trim();
+    const savedMsg = storage.addMessage(state.activeConversationId, msgData);
     addMessageActions(wrapper, "assistant", savedMsg.id);
   }
 

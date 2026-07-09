@@ -621,3 +621,90 @@
     text-decoration: line-through;
     color: var(--clr-text-muted);
 }
+
+/* ── Reasoning block (collapsible) ───────────────────────── */
+.message__reasoning {
+    width: 100%;
+    margin-bottom: 6px;
+    border: 1px solid var(--clr-border-subtle);
+    border-radius: var(--radius-sm);
+    background: var(--clr-surface-3);
+    overflow: hidden;
+}
+
+.message__reasoning-summary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: var(--clr-text-muted);
+    user-select: none;
+    list-style: none;
+    transition: color var(--transition);
+}
+
+.message__reasoning-summary::-webkit-details-marker {
+    display: none;
+}
+
+.message__reasoning-summary:hover {
+    color: var(--clr-text);
+}
+
+.message__reasoning-icon {
+    flex-shrink: 0;
+    color: var(--clr-primary);
+    opacity: 0.7;
+}
+
+.message__reasoning-summary::after {
+    content: "▸";
+    margin-left: auto;
+    font-size: 0.7rem;
+    transition: transform var(--transition);
+}
+
+.message__reasoning[open] .message__reasoning-summary::after {
+    transform: rotate(90deg);
+}
+
+.message__reasoning-body {
+    padding: 0 12px 10px;
+    font-size: 0.82rem;
+    line-height: 1.6;
+    color: var(--clr-text-muted);
+    border-top: 1px solid var(--clr-border-subtle);
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.message__reasoning-body p {
+    margin: 6px 0;
+}
+
+.message__reasoning-body p:first-child {
+    margin-top: 8px;
+}
+
+.message__reasoning-body code {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    background: var(--clr-code-inline);
+    padding: 1px 4px;
+    border-radius: 3px;
+}
+
+.message__reasoning-body pre {
+    background: var(--clr-code-bg);
+    border-radius: var(--radius-xs);
+    padding: 8px 10px;
+    overflow-x: auto;
+    margin: 6px 0;
+}
+
+.message__reasoning-body pre code {
+    background: none;
+    padding: 0;
+}
