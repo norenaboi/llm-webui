@@ -292,6 +292,16 @@ async function resendFromMessage(messageId) {
   }
 
   const storedAttachments = userMessage.attachments || [];
+  const unavailableImage = storedAttachments.find(
+    (attachment) => attachment.type === "image" && !attachment.dataUrl,
+  );
+  if (unavailableImage) {
+    showToast(
+      `Reattach ${unavailableImage.name || "the image"} before resending this message.`,
+      "error",
+    );
+    return;
+  }
   storage.deleteMessagesFrom(state.activeConversationId, deleteFromIdx);
   renderMessages(storage.getMessages(state.activeConversationId));
   await dispatchSend(userMessage.content, storedAttachments);
@@ -563,42 +573,60 @@ function cancelEdit(
 /*  ═══════════════════════════════════════════════════════════════════════════
     File Upload
     ═══════════════════════════════════════════════════════════════════════════ */
-function handleFileUpload(files) {
-  // Accept either a DOM Event (from file input) or a FileList/Array (from drag-and-drop)
-  const fileList =
-    files instanceof Event ? Array.from(files.target.files) : Array.from(files);
+async function handleFileUpload(files) {
+  const input = files instanceof Event ? files.target : null;
+  const fileList = Array.from(input?.files || files || []);
+  if (input) input.value = "";
   if (!fileList.length) return;
 
-  for (const file of fileList) {
-    if (file.type.startsWith("image/")) {
+  const conversationId = state.activeConversationId;
+  const generation = state.attachmentGeneration;
+
+  const readFile = (file, method) =>
+    new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = (e) => {
-        state.pendingAttachments.push({
+      reader.onload = () =>
+        typeof reader.result === "string" && reader.result
+          ? resolve(reader.result)
+          : reject(new Error(`Could not read ${file.name}`));
+      reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+      reader.onabort = () => reject(new Error(`Reading ${file.name} was cancelled`));
+      reader[method](file);
+    });
+
+  const results = await Promise.allSettled(
+    fileList.map(async (file) => {
+      if (file.type.startsWith("image/")) {
+        return {
           type: "image",
-          name: file.name,
+          name: file.name || "Pasted image",
           mimeType: file.type,
-          dataUrl: e.target.result,
-        });
-        renderAttachmentPreview();
+          dataUrl: await readFile(file, "readAsDataURL"),
+        };
+      }
+      return {
+        type: "text",
+        name: file.name,
+        content: await readFile(file, "readAsText"),
       };
-      reader.readAsDataURL(file);
+    }),
+  );
+
+  if (
+    state.activeConversationId !== conversationId ||
+    state.attachmentGeneration !== generation
+  )
+    return;
+
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      state.pendingAttachments.push(result.value);
     } else {
-      // Text-based file: store as an attachment chip (content sent to LLM on dispatch)
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        state.pendingAttachments.push({
-          type: "text",
-          name: file.name,
-          content: e.target.result,
-        });
-        renderAttachmentPreview();
-      };
-      reader.readAsText(file);
+      showToast(result.reason?.message || "Failed to read attachment", "error");
     }
   }
-
-  // Reset the file input so the same file can be re-selected
-  if (files instanceof Event) files.target.value = "";
+  renderAttachmentPreview();
+  updateSendButtonState();
 }
 
 function renderAttachmentPreview() {

@@ -10,6 +10,7 @@ const state = {
   models: [],
   contextMenuConvId: null, // which conv the 3-dot menu is open for
   pendingAttachments: [], // { type: 'image'|'text', name, mimeType, dataUrl } — in-memory only
+  attachmentGeneration: 0,
   abortController: null,
 };
 
@@ -214,6 +215,11 @@ function onTopbarModelChange() {
 async function selectConversation(id, messageId = null) {
   if (state.isLoading) return;
 
+  if (state.activeConversationId !== id) {
+    state.attachmentGeneration += 1;
+    state.pendingAttachments = [];
+    renderAttachmentPreview();
+  }
   state.activeConversationId = id;
   renderConversationList();
   closeConvContextMenu();
@@ -458,20 +464,26 @@ async function saveConversationModal() {
     ═══════════════════════════════════════════════════════════════════════════ */
 async function sendMessage() {
   const content = getEditorText().trim();
-  if (!content || state.isLoading || !state.activeConversationId) return;
+  const attachments = [...state.pendingAttachments];
+  if (!canSendMessage(content, attachments)) return;
 
   clearEditor();
 
-  // Capture and clear pending attachments before dispatching
-  const attachments = [...state.pendingAttachments];
+  state.attachmentGeneration += 1;
   state.pendingAttachments = [];
   renderAttachmentPreview();
+  updateSendButtonState();
 
   await dispatchSend(content, attachments);
 }
 
 async function dispatchSend(content, attachments = []) {
-  if (!content || state.isLoading || !state.activeConversationId) return;
+  if (
+    state.isLoading ||
+    !state.activeConversationId ||
+    (!content.trim() && attachments.length === 0)
+  )
+    return;
 
   const activeConv = state.conversations.find(
     (c) => c.id === state.activeConversationId,
@@ -563,7 +575,7 @@ async function dispatchSend(content, attachments = []) {
         return;
       }
       const errMsg = err instanceof Error ? err.message : String(err);
-      if (errMsg == "") showToast("Failed: " + errMsg, "error");
+      showToast(errMsg ? "Failed: " + errMsg : "Failed to send message", "error");
     }
   } finally {
     state.isLoading = false;
@@ -632,9 +644,22 @@ async function loadSettings() {
 /*  ═══════════════════════════════════════════════════════════════════════════
     Input Helpers
     ═══════════════════════════════════════════════════════════════════════════ */
+function canSendMessage(
+  content = getEditorText().trim(),
+  attachments = state.pendingAttachments,
+) {
+  if (!state.activeConversationId || state.isLoading) return false;
+  if (content) return true;
+  return attachments.some((attachment) => attachment.type !== "generate-image");
+}
+
+function updateSendButtonState() {
+  dom.btnSend.disabled = !canSendMessage();
+}
+
 function enableInput() {
   dom.messageInput.contentEditable = "true";
-  dom.btnSend.disabled = false;
+  updateSendButtonState();
   if (dom.btnPlus) dom.btnPlus.disabled = false;
 }
 
@@ -1094,8 +1119,35 @@ function bindEvents() {
     }
   });
 
+  dom.messageInput.addEventListener("paste", (e) => {
+    const imageFiles = Array.from(e.clipboardData?.items || [])
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter(Boolean);
+    if (!imageFiles.length) return;
+
+    e.preventDefault();
+    const pastedText = e.clipboardData.getData("text/plain");
+    if (pastedText) {
+      const selection = window.getSelection();
+      if (selection?.rangeCount) {
+        const range = selection.getRangeAt(0);
+        range.deleteContents();
+        const textNode = document.createTextNode(pastedText);
+        range.insertNode(textNode);
+        range.setStartAfter(textNode);
+        range.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+    }
+
+    handleFileUpload(imageFiles).finally(() => dom.messageInput.focus());
+  });
+
   dom.messageInput.addEventListener("input", () => {
     collapseCompletedFences();
+    updateSendButtonState();
   });
 
   dom.messageInput.addEventListener("click", (e) => {
@@ -1335,6 +1387,7 @@ function bindEvents() {
           name: "Generate Image",
         });
         renderAttachmentPreview();
+        updateSendButtonState();
       }
     });
   }
@@ -1390,6 +1443,7 @@ function bindEvents() {
         if (!isNaN(idx)) {
           state.pendingAttachments.splice(idx, 1);
           renderAttachmentPreview();
+          updateSendButtonState();
         }
       }
     });

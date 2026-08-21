@@ -39,6 +39,31 @@ function extractReasoningField(obj) {
   return obj?.reasoning || obj?.reasoning_content || "";
 }
 
+function buildUserContent(text, imageAttachments, textAttachments) {
+  let fullContent = text;
+  if (textAttachments.length > 0) {
+    fullContent += textAttachments
+      .map((a) => `\n\n[File: ${a.name}]\n\`\`\`\n${a.content}\n\`\`\``)
+      .join("");
+  }
+  if (imageAttachments.length === 0) return fullContent;
+
+  const contentParts = [];
+  if (fullContent) contentParts.push({ type: "text", text: fullContent });
+  for (const att of imageAttachments) {
+    if (typeof att.dataUrl !== "string" || !att.dataUrl) {
+      throw new Error(
+        `Image attachment ${att.name || "(unnamed)"} is no longer available; please attach it again.`,
+      );
+    }
+    contentParts.push({
+      type: "image_url",
+      image_url: { url: att.dataUrl },
+    });
+  }
+  return contentParts;
+}
+
 async function sendMessageBlocking(
   content,
   userWrapper = null,
@@ -68,24 +93,14 @@ async function sendMessageBlocking(
       msg.role === "user" &&
       (imageAttachments.length > 0 || textAttachments.length > 0)
     ) {
-      let fullContent = msg.content;
-      if (textAttachments.length > 0) {
-        fullContent += textAttachments
-          .map((a) => `\n\n[File: ${a.name}]\n\`\`\`\n${a.content}\n\`\`\``)
-          .join("");
-      }
-      if (imageAttachments.length > 0) {
-        const contentParts = [{ type: "text", text: fullContent }];
-        for (const att of imageAttachments) {
-          contentParts.push({
-            type: "image_url",
-            image_url: { url: att.dataUrl },
-          });
-        }
-        llmMessages.push({ role: msg.role, content: contentParts });
-      } else {
-        llmMessages.push({ role: msg.role, content: fullContent });
-      }
+      llmMessages.push({
+        role: msg.role,
+        content: buildUserContent(
+          msg.content,
+          imageAttachments,
+          textAttachments,
+        ),
+      });
     } else {
       llmMessages.push({ role: msg.role, content: msg.content });
     }
@@ -295,24 +310,14 @@ async function sendMessageStreaming(
       msg.role === "user" &&
       (imageAttachments.length > 0 || textAttachments.length > 0)
     ) {
-      let fullContent = msg.content;
-      if (textAttachments.length > 0) {
-        fullContent += textAttachments
-          .map((a) => `\n\n[File: ${a.name}]\n\`\`\`\n${a.content}\n\`\`\``)
-          .join("");
-      }
-      if (imageAttachments.length > 0) {
-        const contentParts = [{ type: "text", text: fullContent }];
-        for (const att of imageAttachments) {
-          contentParts.push({
-            type: "image_url",
-            image_url: { url: att.dataUrl },
-          });
-        }
-        llmMessages.push({ role: msg.role, content: contentParts });
-      } else {
-        llmMessages.push({ role: msg.role, content: fullContent });
-      }
+      llmMessages.push({
+        role: msg.role,
+        content: buildUserContent(
+          msg.content,
+          imageAttachments,
+          textAttachments,
+        ),
+      });
     } else {
       llmMessages.push({ role: msg.role, content: msg.content });
     }
