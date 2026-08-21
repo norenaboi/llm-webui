@@ -150,6 +150,22 @@ const storage = {
     lsSet(STORAGE_KEYS.messages, msgs);
   },
 
+  collectAttachmentIds() {
+    const msgs = lsGet(STORAGE_KEYS.messages) || {};
+    return Object.values(msgs)
+      .flat()
+      .flatMap((message) => message.attachments || [])
+      .filter(
+        (attachment) =>
+          attachment.type === "image" && attachment.attachmentId,
+      )
+      .map((attachment) => attachment.attachmentId);
+  },
+
+  async reconcileAttachments() {
+    await attachmentStore.reconcile(storage.collectAttachmentIds());
+  },
+
   // ── Settings ───────────────────────────────────────────────────────────────
 
   getSettings() {

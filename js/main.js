@@ -252,7 +252,14 @@ async function selectConversation(id, messageId = null) {
       populateTopbarModelSelect(conv.model || "");
     }
 
-    renderMessages(conv.messages);
+    const loadGeneration = state.attachmentGeneration;
+    const hydratedMessages = await attachmentStore.hydrateMessages(conv.messages);
+    if (
+      state.activeConversationId !== id ||
+      state.attachmentGeneration !== loadGeneration
+    )
+      return;
+    renderMessages(hydratedMessages);
     enableInput();
 
     // If a specific message was requested, scroll to it
@@ -262,7 +269,15 @@ async function selectConversation(id, messageId = null) {
       }, 100);
     }
   } catch (err) {
-    showToast("Failed to load conversation: " + err.message, "error");
+    // IndexedDB is optional; render metadata-only chips if it is unavailable.
+    const conv = storage.getConversation(id);
+    if (conv) {
+      renderMessages(conv.messages);
+      enableInput();
+    }
+    if (err.message !== "IndexedDB is not available") {
+      showToast("Failed to load conversation: " + err.message, "error");
+    }
   }
 }
 
@@ -509,19 +524,36 @@ async function dispatchSend(content, attachments = []) {
     hasGenerateImage,
   );
 
-  // Save user message to storage before the fetch.
-  // Strip dataUrl from image attachments before persisting — base64 image data
-  // can be several MB and will quickly exceed the ~5 MB localStorage quota.
-  // The dataUrl is only needed for the in-flight API request (already captured
-  // in the `attachments` variable above) and for the current-session UI render.
+  const persistedAttachments = [];
+  for (const attachment of attachments) {
+    if (attachment.type !== "image") {
+      persistedAttachments.push(attachment);
+      continue;
+    }
+    try {
+      const attachmentId = await attachmentStore.putImage(attachment);
+      persistedAttachments.push({
+        type: "image",
+        attachmentId,
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+      });
+      attachment.attachmentId = attachmentId;
+    } catch (err) {
+      showToast(
+        `Image saved for this session only: ${err.message}`,
+        "info",
+      );
+      persistedAttachments.push({
+        type: "image",
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+      });
+    }
+  }
+
   const attachmentsForStorage =
-    attachments.length > 0
-      ? attachments.map((a) =>
-          a.type === "image"
-            ? { type: a.type, name: a.name, mimeType: a.mimeType }
-            : a,
-        )
-      : undefined;
+    attachments.length > 0 ? persistedAttachments : undefined;
   const userMsg = storage.addMessage(state.activeConversationId, {
     role: "user",
     content,
@@ -1464,6 +1496,7 @@ async function init() {
   }
   await loadSettings();
   await loadConversations();
+  reconcileAttachmentStorage();
 
   // Populate the topbar model selector on load
   // If no active conversation, use settings default and try to fetch from endpoint

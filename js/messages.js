@@ -261,6 +261,14 @@ function removeThinkingBubble() {
   if (el) el.remove();
 }
 
+async function hydrateStoredAttachments(attachments) {
+  try {
+    return await attachmentStore.hydrateAttachments(attachments || []);
+  } catch {
+    return attachments || [];
+  }
+}
+
 async function resendFromMessage(messageId) {
   if (state.isLoading || !state.activeConversationId) return;
 
@@ -291,7 +299,9 @@ async function resendFromMessage(messageId) {
     return;
   }
 
-  const storedAttachments = userMessage.attachments || [];
+  const storedAttachments = await hydrateStoredAttachments(
+    userMessage.attachments || [],
+  );
   const unavailableImage = storedAttachments.find(
     (attachment) => attachment.type === "image" && !attachment.dataUrl,
   );
@@ -305,6 +315,7 @@ async function resendFromMessage(messageId) {
   storage.deleteMessagesFrom(state.activeConversationId, deleteFromIdx);
   renderMessages(storage.getMessages(state.activeConversationId));
   await dispatchSend(userMessage.content, storedAttachments);
+  reconcileAttachmentStorage();
 }
 
 /*  ═══════════════════════════════════════════════════════════════════════════
@@ -314,6 +325,7 @@ function deleteMessage(messageId) {
   if (!state.activeConversationId) return;
   storage.deleteMessage(state.activeConversationId, messageId);
   renderMessages(storage.getMessages(state.activeConversationId));
+  reconcileAttachmentStorage();
 }
 
 /*  ═══════════════════════════════════════════════════════════════════════════
@@ -516,16 +528,30 @@ async function commitEdit(
   const trimmed = newContent.trim();
   if (!trimmed) return; // don't save empty
 
-  wrapper.classList.remove("message--editing");
-
   if (role === "user") {
+    const hydratedAttachments = await hydrateStoredAttachments(editAttachments);
+    const unavailableImage = hydratedAttachments.find(
+      (attachment) => attachment.type === "image" && !attachment.dataUrl,
+    );
+    if (unavailableImage) {
+      showToast(
+        `Reattach ${unavailableImage.name || "the image"} before saving this edit.`,
+        "error",
+      );
+      return;
+    }
+
+    wrapper.classList.remove("message--editing");
+
     // Delete this message and everything after it, then re-send with new text
     const messages = storage.getMessages(state.activeConversationId);
     const idx = messages.findIndex((m) => String(m.id) === String(messageId));
     if (idx !== -1) storage.deleteMessagesFrom(state.activeConversationId, idx);
     renderMessages(storage.getMessages(state.activeConversationId));
-    await dispatchSend(trimmed, editAttachments);
+    await dispatchSend(trimmed, hydratedAttachments);
+    reconcileAttachmentStorage();
   } else {
+    wrapper.classList.remove("message--editing");
     // assistant — update in storage and re-render the bubble in place
     storage.updateMessage(state.activeConversationId, messageId, {
       content: trimmed,

@@ -1,6 +1,10 @@
 /*  ═══════════════════════════════════════════════════════════════════════════
     Render: Conversation List
     ═══════════════════════════════════════════════════════════════════════════ */
+function reconcileAttachmentStorage() {
+  storage.reconcileAttachments().catch(() => {});
+}
+
 function renderConversationList(searchQuery = "") {
   dom.convList.innerHTML = "";
 
@@ -328,6 +332,7 @@ async function deleteConversation(convId) {
 
   try {
     storage.deleteConversation(convId);
+    reconcileAttachmentStorage();
 
     // If we deleted the active conversation, clear the view
     if (convId === state.activeConversationId) {
