@@ -781,15 +781,28 @@ function formatMessageContent(content) {
         .replace(/&quot;/g, '"')
         .replace(/&#039;/g, "'");
       const langLabel = lang || "";
+      const isJson = /^json$/i.test(langLabel);
+      const downloadBtn = isJson
+        ? `<button class="code-block__download-btn" title="Download .json" aria-label="Download as JSON file" type="button">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 3v12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <path d="M7 10l5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    </button>`
+        : "";
       return `<div class="code-block-wrapper">
   <div class="code-block__header">
     <span class="code-block__lang">${escapeHtml(langLabel)}</span>
-    <button class="code-block__copy-btn" title="Copy code">
+    <div class="code-block__actions">
+    ${downloadBtn}
+    <button class="code-block__copy-btn" title="Copy code" aria-label="Copy code" type="button">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
         <rect x="8" y="8" width="13" height="13" rx="2" stroke="currentColor" stroke-width="2"/>
         <path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
       </svg>
     </button>
+    </div>
   </div>
   <pre><code class="${escapeHtml(langLabel ? `language-${langLabel}` : "")}">${code}</code></pre>
 </div>`;
@@ -807,17 +820,36 @@ async function downloadGeneratedImage(url) {
       : blob.type.includes("webp")
         ? "webp"
         : "jpg";
-    const blobUrl = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = blobUrl;
-    a.download = `generated-image.${ext}`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+    triggerBlobDownload(blob, `generated-image.${ext}`);
   } catch {
     window.open(url, "_blank");
   }
+}
+
+function triggerBlobDownload(blob, filename) {
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = blobUrl;
+  a.download = filename;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+}
+
+function downloadJsonCodeBlock(text) {
+  let content = text;
+  try {
+    content = JSON.stringify(JSON.parse(text), null, 2);
+  } catch {
+    // Not strictly valid JSON: download the raw block as-is.
+  }
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+  triggerBlobDownload(
+    new Blob([content], { type: "application/json" }),
+    `data-${stamp}.json`,
+  );
 }
 
 /*  ═══════════════════════════════════════════════════════════════════════════
@@ -1357,6 +1389,19 @@ function bindEvents() {
     if (dlBtn) {
       const imgUrl = dlBtn.dataset.imgUrl;
       if (imgUrl) downloadGeneratedImage(imgUrl);
+      return;
+    }
+
+    // Download JSON code block
+    const jsonDlBtn = e.target.closest(".code-block__download-btn");
+    if (jsonDlBtn) {
+      const wrapper = jsonDlBtn.closest(".code-block-wrapper");
+      const code = wrapper && wrapper.querySelector("code");
+      if (code) {
+        downloadJsonCodeBlock(code.textContent || "");
+        jsonDlBtn.classList.add("downloaded");
+        setTimeout(() => jsonDlBtn.classList.remove("downloaded"), 2000);
+      }
       return;
     }
 

@@ -445,6 +445,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 8px;
     padding: 6px 12px;
     background: var(--clr-surface-3);
     border-bottom: 1px solid var(--clr-border);
@@ -452,13 +453,25 @@
 }
 
 .code-block__lang {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     color: var(--clr-text-muted);
     font-family: var(--font-mono);
     font-size: 0.7rem;
     text-transform: lowercase;
 }
 
-.code-block__copy-btn {
+.code-block__actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.code-block__copy-btn,
+.code-block__download-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -470,21 +483,46 @@
     background: var(--clr-surface);
     color: var(--clr-text-muted);
     cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
     transition:
         background var(--transition),
         color var(--transition),
         border-color var(--transition);
 }
 
-.code-block__copy-btn:hover {
-    background: var(--clr-surface-2);
-    color: var(--clr-text);
-    border-color: var(--clr-text-muted);
+@media (hover: hover) {
+    .code-block__copy-btn:hover,
+    .code-block__download-btn:hover {
+        background: var(--clr-surface-2);
+        color: var(--clr-text);
+        border-color: var(--clr-text-muted);
+    }
 }
 
-.code-block__copy-btn.copied {
+.code-block__copy-btn:active,
+.code-block__download-btn:active {
+    background: var(--clr-surface-2);
+    color: var(--clr-text);
+}
+
+.code-block__copy-btn.copied,
+.code-block__download-btn.downloaded {
     color: var(--clr-success);
     border-color: var(--clr-success);
+}
+
+/* Larger tap targets on touch devices */
+@media (pointer: coarse) {
+    .code-block__copy-btn,
+    .code-block__download-btn {
+        width: 34px;
+        height: 34px;
+    }
+
+    .code-block__header {
+        padding: 5px 10px;
+    }
 }
 
 .code-block-wrapper pre {
