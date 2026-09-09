@@ -70,6 +70,8 @@ const dom = {
   settingsTemperature: document.getElementById("settings-temperature"),
   settingsTopP: document.getElementById("settings-top-p"),
   settingsStream: document.getElementById("settings-stream"),
+  settingsProfileSlots: document.getElementById("settings-profile-slots"),
+  settingsProfileName: document.getElementById("settings-profile-name"),
   // Plus menu
   btnPlus: document.getElementById("btn-plus"),
   plusMenu: document.getElementById("plus-menu"),
@@ -747,7 +749,22 @@ function scrollToBottom() {
  * so it is never persisted on the conversation object itself.
  */
 function resolveApiKey(conv) {
-  const { preset } = parseEndpointPreset(conv.endpoint || "");
+  const endpoint = conv.endpoint || "";
+  // A saved connection profile owns its key, so several custom endpoints can
+  // each carry their own instead of sharing the single "custom" preset key.
+  const profiles = state.settings.connection_profiles || [];
+  const active = state.settings.active_profile;
+  const activeProfile = typeof active === "number" ? profiles[active] : null;
+  if (
+    activeProfile &&
+    activeProfile.endpoint === endpoint &&
+    activeProfile.api_key
+  )
+    return activeProfile.api_key;
+  const match = profiles.find((p) => p && p.endpoint === endpoint && p.api_key);
+  if (match) return match.api_key;
+
+  const { preset } = parseEndpointPreset(endpoint);
   const api_keys = state.settings.api_keys || {};
   return api_keys[preset] || state.settings.api_key || "";
 }
@@ -1003,7 +1020,7 @@ function bindEvents() {
       customEl: dom.settingsEndpoint,
       modeBtns: [],
     },
-    () => {},
+    updateSettingsApiKeyPlaceholder,
   );
   // Update API key placeholder whenever the settings preset changes.
   dom.settingsEndpointPreset.addEventListener(
@@ -1064,6 +1081,15 @@ function bindEvents() {
   document
     .getElementById("btn-settings-clear-storage")
     .addEventListener("click", clearLocalStorage);
+  document
+    .getElementById("btn-profile-save")
+    .addEventListener("click", saveCurrentAsProfile);
+  dom.settingsProfileName.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      saveCurrentAsProfile();
+    }
+  });
   initClearKeysModal();
 
   // ── Context menu actions ───────────────────────────────────

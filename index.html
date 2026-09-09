@@ -756,6 +756,36 @@
                 </div>
 
                 <div class="modal__body">
+                    <div class="profile-section">
+                        <label class="form-label">Connection Profiles</label>
+                        <div
+                            class="profile-slots"
+                            id="settings-profile-slots"
+                            role="group"
+                            aria-label="Connection profiles"
+                        ></div>
+                        <div class="profile-actions">
+                            <input
+                                type="text"
+                                id="settings-profile-name"
+                                class="form-input"
+                                maxlength="24"
+                                placeholder="Profile name"
+                            />
+                            <button
+                                class="btn btn--ghost"
+                                type="button"
+                                id="btn-profile-save"
+                            >
+                                Save Profile
+                            </button>
+                        </div>
+                        <p class="profile-note">
+                            Stores the endpoint + API key below into the
+                            selected slot. Click a saved slot to switch to it.
+                        </p>
+                    </div>
+
                     <label class="form-label">Endpoint</label>
                     <div class="csel" id="settings-endpoint-csel">
                         <button
