@@ -1391,6 +1391,13 @@ function bindEvents() {
       return;
     }
 
+    const branchBtn = e.target.closest(".btn--branch");
+    if (branchBtn) {
+      const wrapper = branchBtn.closest(".message[data-message-id]");
+      if (wrapper) branchFromMessage(wrapper.dataset.messageId);
+      return;
+    }
+
     const editBtn = e.target.closest(".btn--edit");
     if (editBtn) {
       const wrapper = editBtn.closest(".message[data-message-id]");

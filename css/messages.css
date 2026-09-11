@@ -164,6 +164,7 @@
 }
 
 .btn--resend,
+.btn--branch,
 .btn--edit,
 .btn--delete {
     display: inline-flex;
@@ -184,6 +185,7 @@
 }
 
 .btn--resend:hover,
+.btn--branch:hover,
 .btn--edit:hover {
     background: var(--clr-surface-2);
     color: var(--clr-text);
@@ -197,6 +199,7 @@
 }
 
 .btn--resend:disabled,
+.btn--branch:disabled,
 .btn--edit:disabled,
 .btn--delete:disabled {
     opacity: 0.4;

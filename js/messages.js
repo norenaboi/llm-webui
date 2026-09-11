@@ -65,6 +65,14 @@ function buildActionsHtml(role) {
         <path d="M3 3v5h5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
     </button>
+    <button class="btn--branch" title="Branch into a new chat">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M6 4v11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="18" cy="6" r="2.5" stroke="currentColor" stroke-width="2"/>
+        <circle cx="6" cy="18" r="2.5" stroke="currentColor" stroke-width="2"/>
+        <path d="M18 8.5a9 9 0 0 1-9 9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    </button>
   </div>`;
 }
 

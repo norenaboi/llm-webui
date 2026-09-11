@@ -327,6 +327,50 @@ async function duplicateConversation(convId) {
   }
 }
 
+/*  ═══════════════════════════════════════════════════════════════════════════
+    Branch: fork a conversation into a new one, up to and including a message
+    ═══════════════════════════════════════════════════════════════════════════ */
+async function branchFromMessage(messageId) {
+  if (state.isLoading || !state.activeConversationId) return;
+
+  const sourceId = state.activeConversationId;
+  const conv = storage.getConversation(sourceId);
+  if (!conv) return;
+
+  const messages = storage.getMessages(sourceId);
+  const idx = messages.findIndex((m) => String(m.id) === String(messageId));
+  if (idx === -1) return;
+
+  try {
+    const newConv = storage.createConversation({
+      title: conv.title + " (branch)",
+      model: conv.model || "",
+      system_prompt: conv.system_prompt || "",
+      temperature: conv.temperature !== undefined ? conv.temperature : "",
+      top_p: conv.top_p !== undefined ? conv.top_p : "",
+      endpoint: conv.endpoint || "",
+      stream: conv.stream || "false",
+    });
+
+    // Copy messages up to and including the branch point. Image attachments
+    // keep their attachmentId, so both conversations reference the same blob
+    // and reconcileAttachments() sees it as still in use.
+    const msgs = lsGet(STORAGE_KEYS.messages) || {};
+    msgs[newConv.id] = messages.slice(0, idx + 1).map((m) => ({
+      ...m,
+      id: Date.now() + Math.random(),
+      conversation_id: newConv.id,
+    }));
+    lsSet(STORAGE_KEYS.messages, msgs);
+
+    await loadConversations();
+    await selectConversation(newConv.id);
+    showToast("Branched into a new conversation", "success");
+  } catch (err) {
+    showToast("Failed to branch: " + err.message, "error");
+  }
+}
+
 async function deleteConversation(convId) {
   closeConvContextMenu();
 
